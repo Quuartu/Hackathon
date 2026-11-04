@@ -49,7 +49,7 @@ RETURN b.batteryPassportId AS passportId, b.status AS status;
 // I. Replay the demo: reset BAT-0001 only (status, readings, alerts)
 MATCH (b:BatteryInstance {batteryId: 'BAT-0001'})-[:HAS_DYNAMIC_PERFORMANCE]->(dp:DynamicPerformance)
 SET b.status = 'Original', b.diagnosis = 'OK', dp.internalResistanceIncreasePct = 0.0
-REMOVE b.statusChangedAt
+REMOVE b.statusChangedAt, b.reportedReason, b.reportedAt
 WITH b
 MATCH (b)-[:HAS_MODULE]->(m:Module)
 REMOVE m.lastResistanceMohm, m.lastLevel, m.lastReadingAt, m.lastIncreasePct

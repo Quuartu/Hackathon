@@ -1,35 +1,4 @@
 import { useSyncExternalStore } from 'react'
-import { seedBatteries } from './data.js'
-
-const patch = (batteries, id, change) =>
-  batteries.map((b) => (b.batteryId === id ? change(b) : b))
-
-export function reportOutOfService(batteries, id, reason, at = new Date().toISOString()) {
-  return patch(batteries, id, (b) => {
-    if (b.status !== 'Original' || b.request) return b
-    return {
-      ...b,
-      request: { reason, at },
-      history: [...b.history, { at, actor: 'Garage', text: `Reported out of service: ${reason}` }],
-    }
-  })
-}
-
-export function approveWaste(batteries, id, at = new Date().toISOString()) {
-  return patch(batteries, id, (b) => {
-    if (!b.request) return b
-    return {
-      ...b,
-      status: 'Waste',
-      request: null,
-      history: [
-        ...b.history,
-        { at, actor: 'Passport Owner', text: 'Status changed: Original → Waste' },
-        { at, actor: 'Passport Owner', text: 'Transfer to sorting centre organised' },
-      ],
-    }
-  })
-}
 
 export function findBattery(batteries, code) {
   const wanted = code.trim().toLowerCase()
@@ -64,44 +33,61 @@ export function generateUniquePassportId(existing) {
   return `BP-FR-${Date.now().toString(16).slice(-6).toUpperCase()}`
 }
 
-// ponytail: localStorage syncs the roles across tabs of one browser only, a real API replaces this for multi-device
-const KEY = 'battery-passport-demo'
+// ponytail: polling is enough for the demo, push updates only if 5 seconds of delay becomes a problem
+const POLL_MS = 5000
+const UNREACHABLE = 'Cannot reach the database. Check that the API is running (npm run server).'
 
-function load() {
-  try {
-    return JSON.parse(localStorage.getItem(KEY)) ?? seedBatteries
-  } catch {
-    return seedBatteries
-  }
-}
-
-let batteries = load()
+let state = { batteries: null, error: '', saving: false }
+let latestRefresh = 0
 const listeners = new Set()
 
-function commit(next) {
-  batteries = next
-  try {
-    localStorage.setItem(KEY, JSON.stringify(next))
-  } catch {
-    // Storage blocked: the demo still works for this tab.
-  }
+function setState(change) {
+  state = { ...state, ...change }
   listeners.forEach((listener) => listener())
 }
 
-export const update = (change) => commit(change(batteries))
-export const resetDemo = () => commit(seedBatteries)
+async function refresh() {
+  const ticket = ++latestRefresh
+  let change
+  try {
+    const response = await fetch('/api/batteries')
+    if (!response.ok) throw new Error()
+    change = { batteries: await response.json(), error: '' }
+  } catch {
+    change = { error: UNREACHABLE }
+  }
+  // An older poll must not overwrite the result of a newer one.
+  if (ticket === latestRefresh) setState(change)
+}
+
+async function act(path, body = {}) {
+  setState({ saving: true })
+  let failure = ''
+  try {
+    const response = await fetch(`/api/batteries/${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    if (!response.ok) failure = (await response.json()).error
+  } catch {
+    failure = UNREACHABLE
+  }
+  await refresh()
+  setState({ saving: false, ...(failure && { error: failure }) })
+}
+
+export const reportOutOfService = (id, reason) => act(`${id}/report`, { reason })
+export const approveWaste = (id) => act(`${id}/approve-waste`)
 
 function subscribe(listener) {
-  const onStorage = () => {
-    batteries = load()
-    listener()
-  }
+  if (listeners.size === 0) refresh()
   listeners.add(listener)
-  window.addEventListener('storage', onStorage)
+  const timer = setInterval(refresh, POLL_MS)
   return () => {
     listeners.delete(listener)
-    window.removeEventListener('storage', onStorage)
+    clearInterval(timer)
   }
 }
 
-export const useBatteries = () => useSyncExternalStore(subscribe, () => batteries)
+export const useBatteries = () => useSyncExternalStore(subscribe, () => state)

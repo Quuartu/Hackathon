@@ -1,32 +1,9 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { seedBatteries } from './data.js'
-import { approveWaste, findBattery, generateUniquePassportId, reportOutOfService } from './store.js'
+import { findBattery, generateUniquePassportId } from './store.js'
 
 const id = 'BAT-2023-0001'
-const get = (batteries, wanted = id) => batteries.find((b) => b.batteryId === wanted)
-
-test('garage report then owner approval moves Original to Waste', () => {
-  const reported = reportOutOfService(seedBatteries, id, 'Critical defect')
-  assert.equal(get(reported).status, 'Original')
-  assert.equal(get(reported).request.reason, 'Critical defect')
-
-  const approved = approveWaste(reported, id)
-  assert.equal(get(approved).status, 'Waste')
-  assert.equal(get(approved).request, null)
-})
-
-test('owner cannot change a status nobody requested', () => {
-  assert.equal(get(approveWaste(seedBatteries, id)).status, 'Original')
-})
-
-test('garage cannot report a Waste battery or report twice', () => {
-  const waste = 'BAT-2021-0093'
-  assert.equal(get(reportOutOfService(seedBatteries, waste, 'x'), waste).request, null)
-
-  const once = reportOutOfService(seedBatteries, id, 'first')
-  assert.equal(get(reportOutOfService(once, id, 'second')).request.reason, 'first')
-})
+const seedBatteries = [{ batteryId: id, batteryPassportId: 'BP-FR-7F3A91' }]
 
 test('scan matches battery or passport id, ignoring case and spaces', () => {
   assert.equal(findBattery(seedBatteries, ' bat-2023-0001 ').batteryId, id)

@@ -1,11 +1,19 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import qrcode from 'qrcode-generator'
 import { demoLogIn, logIn, logOut, ROLES, signUp, useSession } from './auth.js'
-import { approveWaste, findBattery, generateUniquePassportId, reportOutOfService, resetDemo, update, useBatteries } from './store.js'
+import { approveWaste, findBattery, generateUniquePassportId, reportOutOfService, useBatteries } from './store.js'
 
-const formatDate = (iso) => new Date(iso).toLocaleDateString('en-GB', { dateStyle: 'medium' })
+// The database stores some dates as year and month only, like 2033-06.
+const isMonth = (iso) => iso.length === 7
+const formatDate = (iso) =>
+  new Date(iso).toLocaleDateString(
+    'en-GB',
+    isMonth(iso) ? { month: 'short', year: 'numeric', timeZone: 'UTC' } : { dateStyle: 'medium' },
+  )
 const formatDateTime = (iso) =>
-  new Date(iso).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })
+  isMonth(iso)
+    ? formatDate(iso)
+    : new Date(iso).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })
 
 function qrDataUrl(text) {
   const qr = qrcode(0, 'M')
@@ -29,12 +37,12 @@ function useRoute() {
 export default function App() {
   const session = useSession()
   const route = useRoute()
-  const batteries = useBatteries()
+  const { batteries, error } = useBatteries()
   const [demoOpen, setDemoOpen] = useState(false)
   const role = session?.role
   const wrongRoute = session && route.role !== role
   const batteryId = wrongRoute ? undefined : route.batteryId
-  const battery = batteries.find((b) => b.batteryId === batteryId)
+  const battery = batteries?.find((b) => b.batteryId === batteryId)
 
   // Each account only reaches its own role, whatever the URL says.
   useEffect(() => {
@@ -67,16 +75,22 @@ export default function App() {
       ) : (
         <main className={role === 'owner' ? 'page page-wide' : 'page'}>
           {!session && <Auth />}
-          {role === 'manufacturer' && <Manufacturer batteries={batteries} />}
-          {role === 'owner' && <Owner batteries={batteries} selected={battery} />}
-          {(role === 'garage' || role === 'sorting') && !batteryId && (
-            <Scan role={role} batteries={batteries} />
+          {session && error && <Banner tone="danger" title="Data problem">{error}</Banner>}
+          {session && !batteries && !error && <p className="muted" role="status">Loading passports…</p>}
+          {session && batteries && (
+            <>
+              {role === 'manufacturer' && <Manufacturer batteries={batteries} />}
+              {role === 'owner' && <Owner batteries={batteries} selected={battery} />}
+              {(role === 'garage' || role === 'sorting') && !batteryId && (
+                <Scan role={role} batteries={batteries} />
+              )}
+              {(role === 'garage' || role === 'sorting') && batteryId && !battery && (
+                <NotFound role={role} />
+              )}
+              {role === 'garage' && battery && <Garage battery={battery} />}
+              {role === 'sorting' && battery && <Sorting battery={battery} />}
+            </>
           )}
-          {(role === 'garage' || role === 'sorting') && batteryId && !battery && (
-            <NotFound role={role} />
-          )}
-          {role === 'garage' && battery && <Garage battery={battery} />}
-          {role === 'sorting' && battery && <Sorting battery={battery} />}
         </main>
       )}
     </>
@@ -187,7 +201,6 @@ function Auth() {
           {isSignUp ? 'Log in' : 'Create an account'}
         </button>
       </p>
-      <button className="button-ghost" onClick={resetDemo}>Reset demo data</button>
     </div>
   )
 }
@@ -248,7 +261,7 @@ function Manufacturer({ batteries }) {
             list="passports"
             value={code}
             onChange={(event) => setCode(event.target.value)}
-            placeholder="BP-FR-7F3A91"
+            placeholder="BP-2027-0001"
             required
           />
           <datalist id="passports">
@@ -318,7 +331,7 @@ function Scan({ role, batteries }) {
               setCode(event.target.value)
               setNotFound(false)
             }}
-            placeholder="BP-FR-7F3A91"
+            placeholder="BP-2027-0001"
             required
           />
           <button>Open passport</button>
@@ -339,11 +352,12 @@ function NotFound({ role }) {
 }
 
 function Garage({ battery }) {
+  const { saving } = useBatteries()
   const [reason, setReason] = useState('')
 
   function submit(event) {
     event.preventDefault()
-    update((batteries) => reportOutOfService(batteries, battery.batteryId, reason.trim()))
+    reportOutOfService(battery.batteryId, reason.trim())
   }
 
   return (
@@ -369,9 +383,10 @@ function Garage({ battery }) {
             value={reason}
             onChange={(event) => setReason(event.target.value)}
             placeholder="Describe the critical defect"
+            maxLength={500}
             required
           />
-          <button className="button-danger" disabled={!reason.trim()}>
+          <button className="button-danger" disabled={saving || !reason.trim()}>
             Notify Passport Owner
           </button>
         </form>
@@ -386,6 +401,7 @@ function Garage({ battery }) {
 }
 
 function Owner({ batteries, selected }) {
+  const { saving } = useBatteries()
   const requests = batteries.filter((b) => b.request)
 
   return (
@@ -403,7 +419,8 @@ function Owner({ batteries, selected }) {
             </div>
             <button
               className="button-danger"
-              onClick={() => update((all) => approveWaste(all, b.batteryId))}
+              disabled={saving}
+              onClick={() => approveWaste(b.batteryId)}
             >
               Change status to Waste
             </button>
