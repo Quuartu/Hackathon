@@ -30,12 +30,11 @@ The three-role flow from the brief ("Cas d'utilisation par utilisateurs clés") 
 
 | Role | Device | Features |
 |---|---|---|
-| Battery Manufacturer | Any | Generates a QR code from a passport ID. First version, to be extended; this role is a team addition, not in the brief |
 | Garage | Tablet | Simulated scan; identification, status, key parameters and history; sends the diagnosis to the Passport Owner |
 | Passport Owner | Desktop | Request notifications; Original → Waste status change; table of all batteries with details |
 | Sorting Centre | Mobile | Simulated scan; "Passport up to date" confirmation if the status is Waste, otherwise a warning; composition and history |
 
-The first screen is login or account creation. Sign-up asks for an email, a password and a role. After login, each account goes straight to its role and cannot open the others. The 12 test accounts (3 per role) are in `src/accounts.json` and listed in the README. "Reset demo data" on the login page restores the initial battery data.
+The first screen is login or account creation. Sign-up asks for an email, a password and a role. After login, each account goes straight to its role and cannot open the others. The 9 test accounts (3 per role) are in `src/accounts.json` and listed in the README. "Reset demo data" on the login page restores the initial battery data.
 
 For team testing, a "Demo mode" button at the top right opens a screen where you choose a role and skip login. It only appears with `npm run dev`, not in production builds.
 
@@ -57,9 +56,7 @@ For team testing, a "Demo mode" button at the top right opens a screen where you
 | Decision | Reason | Consequence |
 |---|---|---|
 | Fictional data only, no Neo4j | Team choice; the dump and Neo4j were not available on this Mac | The brief asks for Neo4j, so this requirement is still open |
-| Simulated QR scan | Simplest option for a web app | No camera: you click a label or enter an ID. The Battery Manufacturer can generate real QR codes, but the app cannot read them yet |
-| QR codes contain the passport ID, not a URL | Simple first version, based on the team's request | A phone camera shows the ID as text instead of opening the passport |
-| `qrcode-generator` dependency | Browsers cannot generate QR codes natively; the library is small and has no dependencies of its own | One more dependency to install |
+| Simulated QR scan | Simplest option for a web app | No real QR codes or camera: you click a label or enter an ID |
 | English interface | Team choice | No French translation |
 | Défi postponed | Use cases come first | Still mandatory for the submission |
 | Sync through `localStorage` | No backend needed | Roles only update across tabs of the same browser, so the demo must run on one computer |
@@ -89,9 +86,8 @@ Run on 4 November 2026:
   - the created account's password is not stored in clear;
   - over plain HTTP on a non-localhost address, file accounts log in and sign-up shows a clear error.
 - Demo mode: enters each role without login, switches role while logged in, closes without changes, and is absent from the production build.
-- Battery Manufacturer: QR codes for all 3 passports decode back to the right ID, and an unknown ID shows an error instead of a code.
 
-Not tested on a real tablet or phone. The QR codes were decoded from screenshots, not scanned with a real camera.
+Not tested on a real tablet or phone.
 
 ## Known limitations
 
@@ -104,3 +100,17 @@ Not tested on a real tablet or phone. The QR codes were decoded from screenshots
 1. Choose the Défi. The suggestion is #1 (telemetry): an abnormal module resistance would give the demo a concrete reason for the move to Waste.
 2. Decide whether to integrate Neo4j and get the dump mentioned in the brief.
 3. Prepare the slides, mockups or diagrams, and the demo video.
+
+## Stake holders and their needs :  
+
+    Garage Mechanics : Id of battery, statut, key parameters (), history of the battery 
+
+    Responsible of Battery passport and the R&D part : notification of the garage mechanics, being able to modified the statut of the battery, taking data for the feedback 
+
+    Recycler center : All the informations for the recycling part (garage mech data, etc …) 
+
+    Bettery components manufacturers: The campanies that creates all the components of the battery => need to folow each component of the battery and its state 
+
+    The battery owners => they may want to know more about the battery in their vehicles 
+
+    Eureopean union => get the origin of the batteries, apply reglementations,  
