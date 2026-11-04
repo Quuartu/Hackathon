@@ -2,9 +2,9 @@ import { useSyncExternalStore } from 'react'
 import demoAccounts from './accounts.json' with { type: 'json' }
 
 export const ROLES = {
-  manufacturer: { label: 'Battery Manufacturer', text: 'Generate a QR code from a passport ID.' },
+  manufacturer: { label: 'Battery Manufacturer', text: 'Create batteries, manage their passports and handle garage requests.' },
   garage: { label: 'Garage', text: 'Scan a battery, review it and report it out of service.' },
-  owner: { label: 'Passport Owner', text: 'Handle garage requests and update passport status.' },
+  customer: { label: 'Customer', text: 'Scan your battery and check its passport.' },
   sorting: { label: 'Sorting Centre', text: 'Scan a received battery and check its status.' },
 }
 
@@ -112,6 +112,8 @@ export async function signUp(details) {
 export async function logIn(email, password) {
   const account = await verifyLogin(loadAccounts(), email, password)
   if (!account) throw new Error('Incorrect email or password.')
+  // Accounts made before a role was removed are still saved in this browser.
+  if (!ROLES[account.role]) throw new Error('This account type no longer exists. Please create a new account.')
   startSession(account)
 }
 
