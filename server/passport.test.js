@@ -133,3 +133,17 @@ test('parseTelemetry rejects invalid payloads', () => {
   assert.ok(parseTelemetry({ I_A: 50, modules: 'not-an-array' }).error)
   assert.ok(parseTelemetry({ I_A: 50, modules: [{ id: 1 }] }).error)
 })
+
+test('parseTelemetry never reads a missing or impossible value as a healthy module', () => {
+  const module = { id: 1, dV_V: 0.1, R_mOhm: 3 }
+  const refused = (change, top = {}) => parseTelemetry({ I_A: 50, modules: [{ ...module, ...change }], ...top }).error
+  assert.equal(refused({}), undefined)
+  assert.ok(refused({ R_mOhm: null }))
+  assert.ok(refused({ R_mOhm: '' }))
+  assert.ok(refused({ R_mOhm: 0 }))
+  assert.ok(refused({ R_mOhm: -3 }))
+  assert.ok(refused({ id: 1.5 }))
+  assert.ok(refused({}, { I_A: null }))
+  assert.ok(refused({}, { batteryId: 'BAT/1' }))
+  assert.ok(parseTelemetry({ I_A: 50, modules: [null] }).error)
+})

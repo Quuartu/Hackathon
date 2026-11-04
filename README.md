@@ -121,6 +121,8 @@ npm run ngrok
 # or: npx ngrok http 3001
 ```
 
+Through ngrok, only the telemetry routes are available. Everything else answers 403. ngrok needs a free account the first time.
+
 ### 2. Send telemetry to the endpoint
 
 Send a `POST` request to `http://localhost:3001/api/telemetry` (or your ngrok URL `https://<id>.ngrok-free.app/api/telemetry`):
@@ -131,13 +133,17 @@ curl -X POST http://localhost:3001/api/telemetry \
   -d '{"I_A":84.3,"modules":[{"id":1,"dV_V":0.694,"R_mOhm":8.23},{"id":2,"dV_V":0.513,"R_mOhm":6.08},{"id":3,"dV_V":0.388,"R_mOhm":4.60},{"id":4,"dV_V":0.318,"R_mOhm":3.78},{"id":5,"dV_V":0.524,"R_mOhm":6.22}]}'
 ```
 
-*(You can also click the **⚡ Simuler réception ngrok** button directly above the Modules table in the web interface).*
+Without a `batteryId` in the JSON or the URL (`/api/telemetry/BAT-0002`), the data goes to `BAT-0001`.
+
+With `npm run dev`, you can also click **⚡ Simulate telemetry** above the Modules table.
 
 ### 3. Review and apply to Neo4j
 
 1. The **Modules** table immediately displays the new incoming values alongside the old values in distinct highlight colors for side-by-side comparison.
-2. A button **"Mettre à jour les valeurs"** appears.
-3. Clicking it writes the new module resistances, creates historical `Reading` nodes, triggers `Alert` nodes in Neo4j, and updates the battery diagnosis.
+2. A button **Update values** appears, for Garage and Battery Manufacturer.
+3. Clicking it writes the new module resistances, creates historical `Reading` nodes, triggers `Alert` nodes in Neo4j, and updates the battery diagnosis and overall resistance increase. **This changes the shared database**, so tell the group first.
+
+Telemetry waiting for review is kept in memory, so restarting `npm run server` discards it.
 
 ## Limitations
 

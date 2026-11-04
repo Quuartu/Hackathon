@@ -97,7 +97,8 @@ MATCH (b:BatteryInstance {batteryId: $id, status: 'Original'})-[:HAS_WASTE_REQUE
 SET b.status = 'Waste', b.statusChangedAt = datetime(), r.status = 'Approved', r.resolvedAt = datetime()
 RETURN b.status AS status`
 
-// Telemetry update: updates each module's latest resistance, creates Reading nodes and Alerts, and updates diagnosis
+// Telemetry update: updates each module's latest resistance, creates Reading nodes and Alerts, and updates
+// the diagnosis and overall resistance increase. Property names and levels match the team's BMS emulator.
 export const APPLY_TELEMETRY = `
 MATCH (b:BatteryInstance {batteryId: $batteryId})
 OPTIONAL MATCH (b)-[:HAS_DYNAMIC_PERFORMANCE]->(dp:DynamicPerformance)
@@ -112,8 +113,8 @@ SET m.lastResistanceMohm = mod.R_mOhm,
 CREATE (r:Reading {
   timestamp: datetime(),
   resistanceMohm: mod.R_mOhm,
-  dV_V: mod.dV_V,
-  currentA: $I_A,
+  voltageDropV: mod.dV_V,
+  currentStepA: $I_A,
   increasePct: round(((mod.R_mOhm - coalesce(m.initialResistanceMohm, 2.6)) / coalesce(m.initialResistanceMohm, 2.6) * 100) * 10) / 10,
   level: mod.level
 })
@@ -128,29 +129,34 @@ FOREACH (_ IN CASE WHEN mod.level IN ['WARNING', 'CRITICAL'] THEN [1] ELSE [] EN
   })
   CREATE (m)-[:HAS_ALERT]->(a)
 )
-WITH b, dp
+WITH b, dp, collect(m.lastIncreasePct) AS increases
 SET b.diagnosis = CASE
-  WHEN any(mod IN $modules WHERE mod.level = 'CRITICAL') THEN 'Critical defect'
-  WHEN any(mod IN $modules WHERE mod.level = 'WARNING') THEN 'Warning'
+  WHEN any(mod IN $modules WHERE mod.level = 'CRITICAL') THEN 'CRITICAL'
+  WHEN any(mod IN $modules WHERE mod.level = 'WARNING') THEN 'WARNING'
   ELSE 'OK'
-END
+END,
+dp.internalResistanceIncreasePct = reduce(highest = 0.0, value IN increases | CASE WHEN value > highest THEN value ELSE highest END)
 RETURN b.batteryId AS batteryId, b.diagnosis AS diagnosis`
+
+// Number() turns null and '' into 0, which would read as a healthy module.
+const toNumber = (value) =>
+  typeof value === 'number' || (typeof value === 'string' && value.trim()) ? Number(value) : NaN
 
 export function parseTelemetry(body) {
   if (!body || typeof body !== 'object') return { error: 'Payload must be a JSON object.' }
-  const current = Number(body.I_A)
-  if (Number.isNaN(current) || current <= 0) return { error: 'I_A must be a positive number.' }
+  const current = toNumber(body.I_A)
+  if (!Number.isFinite(current) || current <= 0) return { error: 'I_A must be a positive number.' }
   if (!Array.isArray(body.modules) || body.modules.length === 0) {
     return { error: 'modules must be a non-empty array.' }
   }
 
   const modules = []
   for (const m of body.modules) {
-    const id = Number(m.id)
-    const dV_V = Number(m.dV_V)
-    const R_mOhm = Number(m.R_mOhm)
-    if (!id || Number.isNaN(dV_V) || Number.isNaN(R_mOhm)) {
-      return { error: 'Each module must have id, dV_V and R_mOhm numbers.' }
+    const id = toNumber(m?.id)
+    const dV_V = toNumber(m?.dV_V)
+    const R_mOhm = toNumber(m?.R_mOhm)
+    if (!Number.isInteger(id) || id < 1 || !Number.isFinite(dV_V) || !Number.isFinite(R_mOhm) || R_mOhm <= 0) {
+      return { error: 'Each module must have an id, a dV_V number and a positive R_mOhm number.' }
     }
     // Resistance thresholds: OK <= 4.0, WARNING <= 5.0, CRITICAL > 5.0
     const level = R_mOhm <= 4.0 ? 'OK' : R_mOhm <= 5.0 ? 'WARNING' : 'CRITICAL'
@@ -160,6 +166,7 @@ export function parseTelemetry(body) {
   const batteryId = typeof body.batteryId === 'string' && body.batteryId.trim()
     ? body.batteryId.trim().toUpperCase()
     : 'BAT-0001'
+  if (!ID_FORMAT.test(batteryId)) return { error: 'Invalid battery ID.' }
 
   return {
     values: {

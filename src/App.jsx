@@ -761,9 +761,11 @@ function Modules({ battery }) {
   const { saving } = useBatteries()
   const pending = battery.pendingTelemetry
   const [simulating, setSimulating] = useState(false)
+  const [simulateError, setSimulateError] = useState('')
 
   async function handleSimulate() {
     setSimulating(true)
+    setSimulateError('')
     try {
       await sendTelemetry(
         {
@@ -778,6 +780,8 @@ function Modules({ battery }) {
         },
         battery.batteryId,
       )
+    } catch (failure) {
+      setSimulateError(failure.message)
     } finally {
       setSimulating(false)
     }
@@ -787,23 +791,27 @@ function Modules({ battery }) {
     <section className="card">
       <div className="title-row">
         <h2>Modules</h2>
-        <button
-          type="button"
-          className="button-ghost button-small"
-          disabled={simulating || saving}
-          onClick={handleSimulate}
-          title="Simuler l'envoi du JSON télémétrie par ngrok"
-        >
-          {simulating ? 'Envoi...' : '⚡ Simuler réception ngrok'}
-        </button>
+        {/* Team testing tool: only in `npm run dev`, left out of production builds. */}
+        {import.meta.env.DEV && (
+          <button
+            type="button"
+            className="button-ghost button-small"
+            disabled={simulating || saving}
+            onClick={handleSimulate}
+            title="Simulate the telemetry JSON sent through ngrok"
+          >
+            {simulating ? 'Sending…' : '⚡ Simulate telemetry'}
+          </button>
+        )}
       </div>
+      {simulateError && <p className="error" role="alert">{simulateError}</p>}
 
       {pending && (
         <div className="telemetry-banner banner banner-info">
           <div>
-            <strong>Nouvelle télémétrie reçue via l'API (Courant : {pending.I_A} A)</strong>
+            <strong>New telemetry received (current: {pending.I_A} A)</strong>
             <p className="muted">
-              Reçue à {formatDateTime(pending.receivedAt)}. Comparez les nouvelles valeurs à côté des anciennes ci-dessous.
+              Received {formatDateTime(pending.receivedAt)}. Compare the new values with the database below.
             </p>
           </div>
           <button
@@ -812,7 +820,7 @@ function Modules({ battery }) {
             disabled={saving}
             onClick={() => applyTelemetry(battery.batteryId)}
           >
-            {saving ? 'Mise à jour en cours...' : 'Mettre à jour les valeurs'}
+            {saving ? 'Updating…' : 'Update values'}
           </button>
         </div>
       )}
@@ -823,9 +831,9 @@ function Modules({ battery }) {
             <tr>
               <th>Module</th>
               <th>Initial (mΩ)</th>
-              <th>{pending ? 'Ancienne valeur en DB (mΩ)' : 'Current (mΩ)'}</th>
-              {pending && <th className="th-new">Nouvelle valeur (mΩ)</th>}
-              {pending && <th className="th-new">Nouveau ΔV (V)</th>}
+              <th>{pending ? 'Database value (mΩ)' : 'Current (mΩ)'}</th>
+              {pending && <th className="th-new">New value (mΩ)</th>}
+              {pending && <th className="th-new">New ΔV (V)</th>}
               <th>Increase</th>
               <th>Level</th>
             </tr>
