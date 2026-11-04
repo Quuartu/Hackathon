@@ -24,7 +24,9 @@ const row = (battery) => ({
   ca: { cathodeMaterialsList: ['Nickel', 'Cobalt'] },
   el: { electrolyteList: ['LiPF6'] },
   dp: { soh: 78, soc: 62 },
-  dd: { warranty: '2033-06', accidents: 0 },
+  dd: { warranty: '2033-06', accidents: 0, numberOfFullCycles: 612 },
+  modules: [{ name: 'Module 3', initialResistanceMohm: 2.6, lastResistanceMohm: 9.95, lastIncreasePct: 282.7, lastLevel: 'CRITICAL' }],
+  alerts: [{ level: 'CRITICAL', message: 'High resistance', module: 'Module 3', createdAt: '2027-01-01T10:00:00Z' }],
 })
 
 test('maps the graph to the shape the screens read', () => {
@@ -33,6 +35,9 @@ test('maps the graph to the shape the screens read', () => {
   assert.equal(battery.model.voltage.nominal, 400)
   assert.equal(battery.model.composition.cathode, 'Nickel, Cobalt')
   assert.equal(battery.performance.soh, 78)
+  assert.equal(battery.modules[0].nowMohm, 9.95)
+  assert.equal(battery.modules[0].level, 'CRITICAL')
+  assert.equal(battery.alerts[0].module, 'Module 3')
   assert.equal(battery.request, null)
   assert.equal(battery.history.length, 2)
 })

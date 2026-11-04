@@ -395,6 +395,7 @@ function Garage({ battery }) {
         <Identification battery={battery} />
         <KeyParameters battery={battery} />
       </div>
+      <Modules battery={battery} />
       <History battery={battery} />
     </>
   )
@@ -462,6 +463,7 @@ function Owner({ batteries, selected }) {
             <KeyParameters battery={selected} />
             <Composition battery={selected} />
           </div>
+          <Modules battery={selected} />
           <History battery={selected} />
         </>
       )}
@@ -554,8 +556,12 @@ function KeyParameters({ battery }) {
     <Facts
       title="Key parameters"
       facts={[
+        ['Diagnosis', battery.diagnosis],
         ['State of health', `${performance.soh}%`],
         ['State of charge', `${performance.soc}%`],
+        ['Temperature', `${performance.temperatureC} °C`],
+        ['Internal resistance increase', `${performance.resistanceIncreasePct}%`],
+        ['Full cycles', durability.fullCycles],
         ['Voltage (min / nominal / max)', `${model.voltage.minimal} / ${model.voltage.nominal} / ${model.voltage.maximal} V`],
         ['Expected lifetime', `${model.expectedLifetimeCycles} cycles`],
         ['Warranty until', formatDate(durability.warrantyUntil)],
@@ -579,6 +585,48 @@ function Composition({ battery }) {
         ['Carbon footprint', `${carbonFootprint.declared} kg CO₂/kWh (class ${carbonFootprint.performanceClass})`],
       ]}
     />
+  )
+}
+
+function Modules({ battery }) {
+  return (
+    <section className="card">
+      <h2>Modules</h2>
+      <div className="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Module</th>
+              <th>Initial (mΩ)</th>
+              <th>Current (mΩ)</th>
+              <th>Increase</th>
+              <th>Level</th>
+            </tr>
+          </thead>
+          <tbody>
+            {battery.modules.map((m) => (
+              <tr key={m.name}>
+                <td>{m.name}</td>
+                <td>{m.initialMohm}</td>
+                <td>{m.nowMohm ?? 'No reading'}</td>
+                <td>{m.increasePct == null ? '–' : `${m.increasePct}%`}</td>
+                <td>{m.level ? <StatusBadge status={m.level} /> : '–'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <h2 className="subsection-title">Alerts ({battery.alerts.length})</h2>
+      {battery.alerts.length === 0 && <p className="muted">No alerts.</p>}
+      <ol className="history">
+        {battery.alerts.map((alert, index) => (
+          <li key={index}>
+            <span><StatusBadge status={alert.level} /> {alert.module}: {alert.message}</span>
+            <span className="muted">{formatDateTime(alert.createdAt)}</span>
+          </li>
+        ))}
+      </ol>
+    </section>
   )
 }
 

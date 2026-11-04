@@ -11,7 +11,17 @@ MATCH (b)-[:HAS_DYNAMIC_PERFORMANCE]->(dp:DynamicPerformance)
 MATCH (b)-[:HAS_DYNAMIC_DURABILITY]->(dd:DynamicDurability)
 RETURN b { .*, statusChangedAt: toString(b.statusChangedAt), reportedAt: toString(b.reportedAt) } AS b,
        t.name AS type, mo { .* } AS mo, op { .* } AS op, sp { .* } AS sp, sd { .* } AS sd, cf { .* } AS cf,
-       co { .* } AS co, an { .* } AS an, ca { .* } AS ca, el { .* } AS el, dp { .* } AS dp, dd { .* } AS dd
+       co { .* } AS co, an { .* } AS an, ca { .* } AS ca, el { .* } AS el, dp { .* } AS dp, dd { .* } AS dd,
+       COLLECT {
+         MATCH (b)-[:HAS_MODULE]->(m:Module)
+         RETURN m { .name, .initialResistanceMohm, .lastResistanceMohm, .lastIncreasePct, .lastLevel }
+         ORDER BY m.index
+       } AS modules,
+       COLLECT {
+         MATCH (b)-[:HAS_MODULE]->(m:Module)-[:HAS_ALERT]->(a:Alert)
+         RETURN a { .level, .message, module: m.name, createdAt: toString(a.createdAt) }
+         ORDER BY a.createdAt DESC
+       } AS alerts
 ORDER BY b.batteryId`
 
 // The WHERE clauses are the status rules: no match means the action no longer applies.
@@ -28,7 +38,7 @@ SET b.status = 'Waste', b.statusChangedAt = datetime()
 RETURN b.batteryId AS batteryId`
 
 // Shapes one LIST row for the screens in src/App.jsx.
-export function toBattery({ b, type, mo, op, sp, sd, cf, co, an, ca, el, dp, dd }) {
+export function toBattery({ b, type, mo, op, sp, sd, cf, co, an, ca, el, dp, dd, modules, alerts }) {
   const history = [
     { at: b.manufacturingDate, actor: 'Manufacturer', text: 'Battery manufactured' },
     { at: b.dateOfPuttingIntoService, actor: 'Manufacturer', text: 'Put into service' },
@@ -47,6 +57,7 @@ export function toBattery({ b, type, mo, op, sp, sd, cf, co, an, ca, el, dp, dd 
     batteryId: b.batteryId,
     batteryPassportId: b.batteryPassportId,
     status: b.status,
+    diagnosis: b.diagnosis,
     model: {
       name: mo.name,
       modelId: mo.modelId,
@@ -64,8 +75,21 @@ export function toBattery({ b, type, mo, op, sp, sd, cf, co, an, ca, el, dp, dd 
       extinguishingAgent: 'Not recorded',
     },
     operator: { name: op.name, address: op.address, country: op.country, email: op.email },
-    performance: { soh: dp.soh, soc: dp.soc },
-    durability: { warrantyUntil: dd.warranty, accidents: dd.accidents },
+    performance: {
+      soh: dp.soh,
+      soc: dp.soc,
+      temperatureC: dp.temperatureC,
+      resistanceIncreasePct: dp.internalResistanceIncreasePct,
+    },
+    durability: { warrantyUntil: dd.warranty, accidents: dd.accidents, fullCycles: dd.numberOfFullCycles },
+    modules: modules.map((m) => ({
+      name: m.name,
+      initialMohm: m.initialResistanceMohm,
+      nowMohm: m.lastResistanceMohm,
+      increasePct: m.lastIncreasePct,
+      level: m.lastLevel,
+    })),
+    alerts,
     request: b.status === 'Original' && b.reportedAt ? { reason: b.reportedReason, at: b.reportedAt } : null,
     history,
   }

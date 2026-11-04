@@ -318,9 +318,20 @@ textarea {
   color: var(--danger);
 }
 
-.badge-available {
+.badge-available,
+.badge-ok {
   background: var(--success-bg);
   color: var(--success);
+}
+
+.badge-warning {
+  background: var(--warning-bg);
+  color: var(--warning);
+}
+
+.badge-critical {
+  background: var(--danger-bg);
+  color: var(--danger);
 }
 
 .banner {
@@ -406,6 +417,10 @@ th {
 .section-title {
   margin: 8px 0 0;
   font-size: 1.25rem;
+}
+
+.subsection-title {
+  margin-top: 16px;
 }
 
 .history {

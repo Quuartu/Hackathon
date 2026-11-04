@@ -112,7 +112,7 @@ Not tested on a real tablet or phone.
 ## Known limitations
 
 - The database holds one battery and no extinguishing agent ("Not recorded" on screen).
-- The module gauges and alerts in the team guide (queries D and E) are not shown yet.
+- Garage and Passport Owner show the diagnosis, module levels and alerts from Neo4j. The module reading history (query F) is not charted yet.
 - The API has no login check, because logins still live in the browser. It only accepts connections from the same computer, so it cannot be hosted online as it is.
 - Generated passport IDs use `BP-FR-XXXXXX` and are not saved, while the database uses `BP-2027-0001`.
 - The transfer to the sorting centre is only a line in the history: there is no order, carrier or document (that is Défi #2).
