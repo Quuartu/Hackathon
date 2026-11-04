@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'reac
 import jsQR from 'jsqr'
 import qrcode from 'qrcode-generator'
 import { demoLogIn, logIn, logOut, ROLES, signUp, useSession } from './auth.js'
-import { addToAccountList, approveWaste, createBattery, findBattery, nextBatteryIds, reportOutOfService, useAccountList, useBatteries } from './store.js'
+import { addToAccountList, applyTelemetry, approveWaste, createBattery, findBattery, nextBatteryIds, reportOutOfService, sendTelemetry, useAccountList, useBatteries } from './store.js'
 
 // The database stores some dates as year and month only, like 2033-06.
 const isMonth = (iso) => iso.length === 7
@@ -767,33 +767,146 @@ function Composition({ battery }) {
 }
 
 function Modules({ battery }) {
+  const { saving } = useBatteries()
+  const pending = battery.pendingTelemetry
+  const [simulating, setSimulating] = useState(false)
+
+  async function handleSimulate() {
+    setSimulating(true)
+    try {
+      await sendTelemetry(
+        {
+          I_A: 84.3,
+          modules: [
+            { id: 1, dV_V: 0.694, R_mOhm: 8.23 },
+            { id: 2, dV_V: 0.513, R_mOhm: 6.08 },
+            { id: 3, dV_V: 0.388, R_mOhm: 4.6 },
+            { id: 4, dV_V: 0.318, R_mOhm: 3.78 },
+            { id: 5, dV_V: 0.524, R_mOhm: 6.22 },
+          ],
+        },
+        battery.batteryId,
+      )
+    } finally {
+      setSimulating(false)
+    }
+  }
+
   return (
     <section className="card">
-      <h2>Modules</h2>
+      <div className="title-row">
+        <h2>Modules</h2>
+        <button
+          type="button"
+          className="button-ghost button-small"
+          disabled={simulating || saving}
+          onClick={handleSimulate}
+          title="Simuler l'envoi du JSON télémétrie par ngrok"
+        >
+          {simulating ? 'Envoi...' : '⚡ Simuler réception ngrok'}
+        </button>
+      </div>
+
+      {pending && (
+        <div className="telemetry-banner banner banner-info">
+          <div>
+            <strong>Nouvelle télémétrie reçue via l'API (Courant : {pending.I_A} A)</strong>
+            <p className="muted">
+              Reçue à {formatDateTime(pending.receivedAt)}. Comparez les nouvelles valeurs à côté des anciennes ci-dessous.
+            </p>
+          </div>
+          <button
+            type="button"
+            className="button-update-neo4j"
+            disabled={saving}
+            onClick={() => applyTelemetry(battery.batteryId)}
+          >
+            {saving ? 'Mise à jour en cours...' : 'Mettre à jour les valeurs'}
+          </button>
+        </div>
+      )}
+
       <div className="table-scroll">
         <table>
           <thead>
             <tr>
               <th>Module</th>
               <th>Initial (mΩ)</th>
-              <th>Current (mΩ)</th>
+              <th>{pending ? 'Ancienne valeur en DB (mΩ)' : 'Current (mΩ)'}</th>
+              {pending && <th className="th-new">Nouvelle valeur (mΩ)</th>}
+              {pending && <th className="th-new">Nouveau ΔV (V)</th>}
               <th>Increase</th>
               <th>Level</th>
             </tr>
           </thead>
           <tbody>
-            {battery.modules.map((m) => (
-              <tr key={m.name}>
-                <td>{m.name}</td>
-                <td>{m.initialMohm}</td>
-                <td>{m.nowMohm ?? 'No reading'}</td>
-                <td>{m.increasePct == null ? '–' : `${m.increasePct}%`}</td>
-                <td>{m.level ? <StatusBadge status={m.level} /> : '–'}</td>
-              </tr>
-            ))}
+            {battery.modules.map((m, index) => {
+              const newMod = pending?.modules?.find(
+                (p) => p.id === (m.index ?? index + 1) || p.name === m.name || `Module ${p.id}` === m.name,
+              )
+              const newIncrease =
+                newMod && m.initialMohm
+                  ? Math.round(((newMod.R_mOhm - m.initialMohm) / m.initialMohm) * 1000) / 10
+                  : null
+
+              return (
+                <tr key={m.name}>
+                  <td><strong>{m.name}</strong></td>
+                  <td>{m.initialMohm}</td>
+                  <td>
+                    {newMod ? (
+                      <span className="value-old">{m.nowMohm ?? 'No reading'}</span>
+                    ) : (
+                      m.nowMohm ?? 'No reading'
+                    )}
+                  </td>
+                  {pending && (
+                    <td>
+                      {newMod ? (
+                        <span className="value-new">{newMod.R_mOhm} mΩ</span>
+                      ) : (
+                        '–'
+                      )}
+                    </td>
+                  )}
+                  {pending && (
+                    <td>
+                      {newMod ? <span className="value-dv">{newMod.dV_V} V</span> : '–'}
+                    </td>
+                  )}
+                  <td>
+                    {newMod && newIncrease != null ? (
+                      <span>
+                        <span className="muted">{m.increasePct == null ? '–' : `${m.increasePct}%`}</span>
+                        <span className="arrow-diff"> → </span>
+                        <strong className="value-new-pct">{newIncrease}%</strong>
+                      </span>
+                    ) : m.increasePct == null ? (
+                      '–'
+                    ) : (
+                      `${m.increasePct}%`
+                    )}
+                  </td>
+                  <td>
+                    {newMod ? (
+                      <span className="level-diff">
+                        {m.level ? <StatusBadge status={m.level} /> : <span className="muted">–</span>}
+                        <span className="arrow-diff"> → </span>
+                        <StatusBadge status={newMod.level} />
+                      </span>
+                    ) : m.level ? (
+                      <StatusBadge status={m.level} />
+                    ) : (
+                      '–'
+                    )}
+                  </td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       </div>
+
       <h2 className="subsection-title">Alerts ({battery.alerts.length})</h2>
       {battery.alerts.length === 0 && <p className="muted">No alerts.</p>}
       <ol className="history">

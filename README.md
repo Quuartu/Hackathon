@@ -105,6 +105,36 @@ The **Battery Manufacturer** role creates a battery in the shared database and s
 
 For testing, **Demo mode** at the top right lets you choose a role and enter without logging in. It only appears with `npm run dev`, not in production builds.
 
+## Telemetry API (ngrok & Défi #1)
+
+The backend listens for real-time telemetry payloads (such as from a simulator or sensor forwarded via ngrok):
+
+### 1. Expose the API with ngrok
+
+In a new terminal:
+```sh
+npm run ngrok
+# or: npx ngrok http 3001
+```
+
+### 2. Send telemetry to the endpoint
+
+Send a `POST` request to `http://localhost:3001/api/telemetry` (or your ngrok URL `https://<id>.ngrok-free.app/api/telemetry`):
+
+```sh
+curl -X POST http://localhost:3001/api/telemetry \
+  -H "Content-Type: application/json" \
+  -d '{"I_A":84.3,"modules":[{"id":1,"dV_V":0.694,"R_mOhm":8.23},{"id":2,"dV_V":0.513,"R_mOhm":6.08},{"id":3,"dV_V":0.388,"R_mOhm":4.60},{"id":4,"dV_V":0.318,"R_mOhm":3.78},{"id":5,"dV_V":0.524,"R_mOhm":6.22}]}'
+```
+
+*(You can also click the **⚡ Simuler réception ngrok** button directly above the Modules table in the web interface).*
+
+### 3. Review and apply to Neo4j
+
+1. The **Modules** table immediately displays the new incoming values alongside the old values in distinct highlight colors for side-by-side comparison.
+2. A button **"Mettre à jour les valeurs"** appears.
+3. Clicking it writes the new module resistances, creates historical `Reading` nodes, triggers `Alert` nodes in Neo4j, and updates the battery diagnosis.
+
 ## Limitations
 
 - The database has no extinguishing agent, so that field shows "Not recorded".

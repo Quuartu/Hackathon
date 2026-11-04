@@ -97,6 +97,80 @@ MATCH (b:BatteryInstance {batteryId: $id, status: 'Original'})-[:HAS_WASTE_REQUE
 SET b.status = 'Waste', b.statusChangedAt = datetime(), r.status = 'Approved', r.resolvedAt = datetime()
 RETURN b.status AS status`
 
+// Telemetry update: updates each module's latest resistance, creates Reading nodes and Alerts, and updates diagnosis
+export const APPLY_TELEMETRY = `
+MATCH (b:BatteryInstance {batteryId: $batteryId})
+OPTIONAL MATCH (b)-[:HAS_DYNAMIC_PERFORMANCE]->(dp:DynamicPerformance)
+WITH b, dp
+UNWIND $modules AS mod
+MATCH (b)-[:HAS_MODULE]->(m:Module)
+WHERE m.index = mod.id OR m.name = 'Module ' + toString(mod.id)
+SET m.lastResistanceMohm = mod.R_mOhm,
+    m.lastIncreasePct = round(((mod.R_mOhm - coalesce(m.initialResistanceMohm, 2.6)) / coalesce(m.initialResistanceMohm, 2.6) * 100) * 10) / 10,
+    m.lastLevel = mod.level,
+    m.lastReadingAt = datetime()
+CREATE (r:Reading {
+  timestamp: datetime(),
+  resistanceMohm: mod.R_mOhm,
+  dV_V: mod.dV_V,
+  currentA: $I_A,
+  increasePct: round(((mod.R_mOhm - coalesce(m.initialResistanceMohm, 2.6)) / coalesce(m.initialResistanceMohm, 2.6) * 100) * 10) / 10,
+  level: mod.level
+})
+CREATE (m)-[:HAS_READING]->(r)
+WITH b, dp, m, mod
+FOREACH (_ IN CASE WHEN mod.level IN ['WARNING', 'CRITICAL'] THEN [1] ELSE [] END |
+  CREATE (a:Alert {
+    level: mod.level,
+    message: 'High internal resistance detected (' + toString(mod.R_mOhm) + ' mΩ)',
+    resistanceMohm: mod.R_mOhm,
+    createdAt: datetime()
+  })
+  CREATE (m)-[:HAS_ALERT]->(a)
+)
+WITH b, dp
+SET b.diagnosis = CASE
+  WHEN any(mod IN $modules WHERE mod.level = 'CRITICAL') THEN 'Critical defect'
+  WHEN any(mod IN $modules WHERE mod.level = 'WARNING') THEN 'Warning'
+  ELSE 'OK'
+END
+RETURN b.batteryId AS batteryId, b.diagnosis AS diagnosis`
+
+export function parseTelemetry(body) {
+  if (!body || typeof body !== 'object') return { error: 'Payload must be a JSON object.' }
+  const current = Number(body.I_A)
+  if (Number.isNaN(current) || current <= 0) return { error: 'I_A must be a positive number.' }
+  if (!Array.isArray(body.modules) || body.modules.length === 0) {
+    return { error: 'modules must be a non-empty array.' }
+  }
+
+  const modules = []
+  for (const m of body.modules) {
+    const id = Number(m.id)
+    const dV_V = Number(m.dV_V)
+    const R_mOhm = Number(m.R_mOhm)
+    if (!id || Number.isNaN(dV_V) || Number.isNaN(R_mOhm)) {
+      return { error: 'Each module must have id, dV_V and R_mOhm numbers.' }
+    }
+    // Resistance thresholds: OK <= 4.0, WARNING <= 5.0, CRITICAL > 5.0
+    const level = R_mOhm <= 4.0 ? 'OK' : R_mOhm <= 5.0 ? 'WARNING' : 'CRITICAL'
+    modules.push({ id, name: `Module ${id}`, dV_V, R_mOhm, level })
+  }
+
+  const batteryId = typeof body.batteryId === 'string' && body.batteryId.trim()
+    ? body.batteryId.trim().toUpperCase()
+    : 'BAT-0001'
+
+  return {
+    values: {
+      batteryId,
+      I_A: current,
+      receivedAt: new Date().toISOString(),
+      modules,
+    },
+  }
+}
+
 // Shapes one LIST row for the screens in src/App.jsx.
 export function toBattery({ b, type, mo, op, sp, sd, cf, co, an, ca, el, dp, dd, modules, alerts, requests: unsorted }) {
   // Subquery results can come back in any order, so they are sorted here.

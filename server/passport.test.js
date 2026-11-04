@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { parseNewBattery, toBattery } from './passport.js'
+import { parseNewBattery, parseTelemetry, toBattery } from './passport.js'
 
 const wasteRequest = (status) => ({
   requestId: 'R1',
@@ -102,4 +102,34 @@ test('a Waste battery has no pending request but keeps its history', () => {
   assert.equal(battery.request, null)
   assert.equal(battery.history.length, 5)
   assert.equal(battery.history.at(-2).text, 'Status changed: Original → Waste')
+})
+
+test('parseTelemetry accepts valid ngrok JSON payload and sets threshold levels', () => {
+  const payload = {
+    I_A: 84.3,
+    modules: [
+      { id: 1, dV_V: 0.694, R_mOhm: 8.23 },
+      { id: 2, dV_V: 0.513, R_mOhm: 6.08 },
+      { id: 3, dV_V: 0.388, R_mOhm: 4.60 },
+      { id: 4, dV_V: 0.318, R_mOhm: 3.78 },
+      { id: 5, dV_V: 0.524, R_mOhm: 6.22 },
+    ],
+  }
+  const { values, error } = parseTelemetry(payload)
+  assert.equal(error, undefined)
+  assert.equal(values.I_A, 84.3)
+  assert.equal(values.batteryId, 'BAT-0001')
+  assert.equal(values.modules.length, 5)
+  assert.equal(values.modules[0].level, 'CRITICAL') // 8.23 > 5.0
+  assert.equal(values.modules[1].level, 'CRITICAL') // 6.08 > 5.0
+  assert.equal(values.modules[2].level, 'WARNING')  // 4.60 in (4.0, 5.0]
+  assert.equal(values.modules[3].level, 'OK')       // 3.78 <= 4.0
+  assert.equal(values.modules[4].level, 'CRITICAL') // 6.22 > 5.0
+})
+
+test('parseTelemetry rejects invalid payloads', () => {
+  assert.ok(parseTelemetry(null).error)
+  assert.ok(parseTelemetry({ I_A: -5, modules: [] }).error)
+  assert.ok(parseTelemetry({ I_A: 50, modules: 'not-an-array' }).error)
+  assert.ok(parseTelemetry({ I_A: 50, modules: [{ id: 1 }] }).error)
 })

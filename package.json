@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "vite",
     "server": "node --env-file=db/.env server/index.js",
+    "ngrok": "npx ngrok http 3001",
     "build": "vite build",
     "preview": "vite preview",
     "test": "node --test"
