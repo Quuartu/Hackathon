@@ -1,7 +1,7 @@
-import { useEffect, useState, useSyncExternalStore } from 'react'
+import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import qrcode from 'qrcode-generator'
 import { demoLogIn, logIn, logOut, ROLES, signUp, useSession } from './auth.js'
-import { approveWaste, findBattery, reportOutOfService, resetDemo, update, useBatteries } from './store.js'
+import { approveWaste, findBattery, generateUniquePassportId, reportOutOfService, resetDemo, update, useBatteries } from './store.js'
 
 const formatDate = (iso) => new Date(iso).toLocaleDateString('en-GB', { dateStyle: 'medium' })
 const formatDateTime = (iso) =>
@@ -193,15 +193,48 @@ function Auth() {
 }
 
 function Manufacturer({ batteries }) {
-  const [code, setCode] = useState('')
-  const [battery, setBattery] = useState(null)
-  const [notFound, setNotFound] = useState(false)
+  // Pre-index existing IDs in a Set for O(1) checks
+  const existingIds = useMemo(() => {
+    const set = new Set()
+    for (const b of batteries) {
+      if (b.batteryPassportId) set.add(b.batteryPassportId.toUpperCase())
+      if (b.batteryId) set.add(b.batteryId.toUpperCase())
+    }
+    return set
+  }, [batteries])
+
+  // Suggested unique ID generated lazily on mount
+  const [suggestedId] = useState(() => generateUniquePassportId(existingIds))
+  const [code, setCode] = useState(suggestedId)
+  const [activeCode, setActiveCode] = useState(suggestedId)
+
+  // Find if activeCode matches an existing battery
+  const matchedBattery = useMemo(() => {
+    const clean = activeCode.trim()
+    return clean ? findBattery(batteries, clean) : null
+  }, [batteries, activeCode])
+
+  // Memoize QR code generation to avoid re-computing on unrelated renders
+  const qrUrl = useMemo(() => {
+    const clean = activeCode.trim()
+    if (!clean) return null
+    try {
+      return qrDataUrl(clean)
+    } catch {
+      return null
+    }
+  }, [activeCode])
+
+  function handleSuggestNew() {
+    const nextId = generateUniquePassportId(existingIds)
+    setCode(nextId)
+    setActiveCode(nextId)
+  }
 
   function submit(event) {
     event.preventDefault()
-    const found = findBattery(batteries, code)
-    setBattery(found ?? null)
-    setNotFound(!found)
+    const clean = code.trim().toUpperCase()
+    setActiveCode(clean)
   }
 
   return (
@@ -214,10 +247,7 @@ function Manufacturer({ batteries }) {
             id="passport"
             list="passports"
             value={code}
-            onChange={(event) => {
-              setCode(event.target.value)
-              setNotFound(false)
-            }}
+            onChange={(event) => setCode(event.target.value)}
             placeholder="BP-FR-7F3A91"
             required
           />
@@ -226,18 +256,29 @@ function Manufacturer({ batteries }) {
               <option value={b.batteryPassportId} key={b.batteryId}>{b.batteryId}</option>
             ))}
           </datalist>
-          <button>Generate QR code</button>
+          <button type="submit">Generate QR code</button>
+          <button
+            type="button"
+            className="button-ghost"
+            onClick={handleSuggestNew}
+            title="Suggest another unique passport ID"
+          >
+            Suggest another
+          </button>
         </div>
-        {notFound && <p className="error" role="alert">No battery found with this ID.</p>}
       </form>
-      {battery && (
+      {qrUrl && (
         <section className="card qr">
           <img
-            src={qrDataUrl(battery.batteryPassportId)}
-            alt={`QR code for passport ${battery.batteryPassportId}`}
+            src={qrUrl}
+            alt={`QR code for passport ${activeCode}`}
           />
-          <strong>{battery.batteryPassportId}</strong>
-          <span className="muted">{battery.batteryId} · {battery.model.name}</span>
+          <strong>{activeCode}</strong>
+          {matchedBattery ? (
+            <span className="muted">{matchedBattery.batteryId} · {matchedBattery.model.name}</span>
+          ) : (
+            <span className="badge badge-available">New available passport</span>
+          )}
         </section>
       )}
     </>

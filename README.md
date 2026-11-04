@@ -48,3 +48,5 @@ For testing, **Demo mode** at the top right lets you choose a role and enter wit
 - QR scanning is simulated with a list of labels and an ID field: the app generates QR codes but cannot read them yet.
 - Login is for the demo only, not real security. Checks run in the browser, created accounts stay in that browser, and anyone can sign up with any role. Passwords of created accounts are stored as salted hashes; those in `src/accounts.json` are in plain text.
 - Creating an account, and logging in with a created one, needs `localhost` or HTTPS, because browsers only allow the hashing API (`crypto.subtle`) there. The accounts in `src/accounts.json` also work over plain HTTP on a local network address.
+
+

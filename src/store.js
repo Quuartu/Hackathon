@@ -38,6 +38,32 @@ export function findBattery(batteries, code) {
   )
 }
 
+export function generateUniquePassportId(existing) {
+  const existingSet =
+    existing instanceof Set
+      ? existing
+      : new Set(
+          (existing ?? []).flatMap((b) =>
+            [b?.batteryPassportId, b?.batteryId].filter(Boolean).map((id) => id.toUpperCase()),
+          ),
+        )
+
+  const bytes = new Uint8Array(3)
+  for (let attempts = 0; attempts < 1000; attempts++) {
+    if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+      crypto.getRandomValues(bytes)
+    } else {
+      for (let j = 0; j < 3; j++) bytes[j] = Math.floor(Math.random() * 256)
+    }
+    const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('').toUpperCase()
+    const candidate = `BP-FR-${hex}`
+    if (!existingSet.has(candidate)) {
+      return candidate
+    }
+  }
+  return `BP-FR-${Date.now().toString(16).slice(-6).toUpperCase()}`
+}
+
 // ponytail: localStorage syncs the roles across tabs of one browser only, a real API replaces this for multi-device
 const KEY = 'battery-passport-demo'
 

@@ -318,6 +318,11 @@ textarea {
   color: var(--danger);
 }
 
+.badge-available {
+  background: var(--success-bg);
+  color: var(--success);
+}
+
 .banner {
   padding: 12px 16px;
   border-left: 4px solid;
