@@ -25,7 +25,7 @@ async function readJson(request) {
     text += chunk
     if (text.length > MAX_BODY) throw new SyntaxError('Body too large')
   }
-  return JSON.parse(text || '{}')
+  return JSON.parse(text || '{}') ?? {}
 }
 
 async function write(response, cypher, params) {
@@ -47,9 +47,13 @@ async function handle(request, response) {
   if (request.headers['content-type'] !== 'application/json') {
     return send(response, 415, { error: 'Send JSON.' })
   }
-  if (action === 'approve-waste') return write(response, APPROVE, { id })
+  const { reason, requestId } = await readJson(request)
 
-  const { reason } = await readJson(request)
+  if (action === 'approve-waste') {
+    if (typeof requestId !== 'string' || !requestId) return send(response, 400, { error: 'Invalid request.' })
+    return write(response, APPROVE, { id, requestId })
+  }
+
   if (typeof reason !== 'string' || !reason.trim() || reason.length > MAX_REASON) {
     return send(response, 400, { error: `The diagnosis must be 1 to ${MAX_REASON} characters.` })
   }

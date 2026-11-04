@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import jsQR from 'jsqr'
 import qrcode from 'qrcode-generator'
 import { demoLogIn, logIn, logOut, ROLES, signUp, useSession } from './auth.js'
-import { approveWaste, findBattery, generateUniquePassportId, reportOutOfService, useBatteries } from './store.js'
+import { addScan, approveWaste, findBattery, generateUniquePassportId, reportOutOfService, useBatteries, useScans } from './store.js'
 
 // The database stores some dates as year and month only, like 2033-06.
 const isMonth = (iso) => iso.length === 7
@@ -20,6 +21,21 @@ function qrDataUrl(text) {
   qr.addData(text)
   qr.make()
   return qr.createDataURL(8, 32)
+}
+
+const MAX_QR_IMAGE_SIZE = 1000
+const CAMERA_SCAN_MS = 200
+
+// Reads a QR code from a video frame or an image, scaling big photos down first.
+function readQr(source, width, height) {
+  const scale = Math.min(1, MAX_QR_IMAGE_SIZE / Math.max(width, height))
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.round(width * scale)
+  canvas.height = Math.round(height * scale)
+  const context = canvas.getContext('2d', { willReadFrequently: true })
+  context.drawImage(source, 0, 0, canvas.width, canvas.height)
+  const { data } = context.getImageData(0, 0, canvas.width, canvas.height)
+  return jsQR(data, canvas.width, canvas.height)?.data
 }
 
 function useRoute() {
@@ -42,7 +58,10 @@ export default function App() {
   const role = session?.role
   const wrongRoute = session && route.role !== role
   const batteryId = wrongRoute ? undefined : route.batteryId
-  const battery = batteries?.find((b) => b.batteryId === batteryId)
+  const scans = useScans(session?.email)
+  // A garage only opens batteries it has scanned, even from a direct URL.
+  const canOpen = role !== 'garage' || scans.includes(batteryId)
+  const battery = canOpen ? batteries?.find((b) => b.batteryId === batteryId) : undefined
 
   // Each account only reaches its own role, whatever the URL says.
   useEffect(() => {
@@ -82,7 +101,7 @@ export default function App() {
               {role === 'manufacturer' && <Manufacturer batteries={batteries} />}
               {role === 'owner' && <Owner batteries={batteries} selected={battery} />}
               {(role === 'garage' || role === 'sorting') && !batteryId && (
-                <Scan role={role} batteries={batteries} />
+                <Scan role={role} batteries={batteries} scans={scans} email={session.email} />
               )}
               {(role === 'garage' || role === 'sorting') && batteryId && !battery && (
                 <NotFound role={role} />
@@ -298,29 +317,132 @@ function Manufacturer({ batteries }) {
   )
 }
 
-function Scan({ role, batteries }) {
+function QrScanner({ onCode }) {
+  const video = useRef(null)
+  const latestOnCode = useRef(onCode)
+  const [cameraOn, setCameraOn] = useState(false)
+  const [error, setError] = useState('')
+
+  // The camera loop outlives renders, so it always calls the newest callback.
+  useEffect(() => {
+    latestOnCode.current = onCode
+  })
+
+  useEffect(() => {
+    if (!cameraOn) return undefined
+    let stream
+    let timer
+    let stopped = false
+
+    async function start() {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+        if (stopped) return stream.getTracks().forEach((track) => track.stop())
+        video.current.srcObject = stream
+        await video.current.play()
+        if (stopped) return undefined
+        timer = setInterval(() => {
+          const { videoWidth, videoHeight } = video.current
+          const found = videoWidth && readQr(video.current, videoWidth, videoHeight)
+          if (found) latestOnCode.current(found)
+        }, CAMERA_SCAN_MS)
+      } catch {
+        if (stopped) return undefined
+        setError('Camera not available. Allow camera access, or use a photo of the QR code.')
+        setCameraOn(false)
+      }
+      return undefined
+    }
+
+    start()
+    return () => {
+      stopped = true
+      clearInterval(timer)
+      stream?.getTracks().forEach((track) => track.stop())
+    }
+  }, [cameraOn])
+
+  async function readFile(event) {
+    const file = event.target.files[0]
+    event.target.value = ''
+    if (!file) return
+    setError('')
+    try {
+      const image = await createImageBitmap(file)
+      const found = readQr(image, image.width, image.height)
+      if (found) onCode(found)
+      else setError('No QR code found in this image.')
+    } catch {
+      setError('This file could not be read as an image.')
+    }
+  }
+
+  return (
+    <section className="card form">
+      <h2>Scan the QR code</h2>
+      <button
+        type="button"
+        className="button-ghost"
+        onClick={() => {
+          setError('')
+          setCameraOn(!cameraOn)
+        }}
+      >
+        {cameraOn ? 'Stop camera' : 'Scan with camera'}
+      </button>
+      {cameraOn && (
+        <video className="qr-video" ref={video} aria-label="Camera preview" muted playsInline />
+      )}
+      <label htmlFor="qr-image">Or use a photo of the QR code</label>
+      <input id="qr-image" type="file" accept="image/*" capture="environment" onChange={readFile} />
+      {error && <p className="error" role="alert">{error}</p>}
+    </section>
+  )
+}
+
+function Scan({ role, batteries, scans, email }) {
   const [code, setCode] = useState('')
   const [notFound, setNotFound] = useState(false)
+  const isGarage = role === 'garage'
+  const listed = isGarage
+    ? scans.flatMap((id) => batteries.filter((b) => b.batteryId === id))
+    : batteries
+
+  function openBattery(value) {
+    const battery = findBattery(batteries, value)
+    if (!battery) return setNotFound(true)
+    if (isGarage) addScan(email, battery.batteryId)
+    window.location.hash = `#/${role}/${battery.batteryId}`
+    return undefined
+  }
 
   function submit(event) {
     event.preventDefault()
-    const battery = findBattery(batteries, code)
-    if (battery) window.location.hash = `#/${role}/${battery.batteryId}`
-    else setNotFound(true)
+    openBattery(code)
   }
+
+  function handleQrCode(value) {
+    setCode(value)
+    openBattery(value)
+  }
+
+  const labels = (
+    <div className="label-grid">
+      {listed.map((b) => (
+        <a className="card label" href={`#/${role}/${b.batteryId}`} key={b.batteryId}>
+          <strong>{b.batteryId}</strong>
+          <span className="muted">{b.model.name}</span>
+          {isGarage && <span><StatusBadge status={b.status} /></span>}
+        </a>
+      ))}
+    </div>
+  )
 
   return (
     <>
       <h1>Scan battery QR code</h1>
-      <p className="muted">Demo: scanning is simulated. Pick a label or enter its ID.</p>
-      <div className="label-grid">
-        {batteries.map((b) => (
-          <a className="card label" href={`#/${role}/${b.batteryId}`} key={b.batteryId}>
-            <strong>{b.batteryId}</strong>
-            <span className="muted">{b.model.name}</span>
-          </a>
-        ))}
-      </div>
+      <QrScanner onCode={handleQrCode} />
+      {!isGarage && labels}
       <form className="card form" onSubmit={submit}>
         <label htmlFor="code">Battery or passport ID</label>
         <div className="form-row">
@@ -338,6 +460,12 @@ function Scan({ role, batteries }) {
         </div>
         {notFound && <p className="error" role="alert">No battery found with this ID.</p>}
       </form>
+      {isGarage && (
+        <>
+          <h2 className="section-title">Your batteries ({listed.length})</h2>
+          {listed.length === 0 ? <p className="muted">No batteries scanned yet.</p> : labels}
+        </>
+      )}
     </>
   )
 }
@@ -421,7 +549,7 @@ function Owner({ batteries, selected }) {
             <button
               className="button-danger"
               disabled={saving}
-              onClick={() => approveWaste(b.batteryId)}
+              onClick={() => approveWaste(b.batteryId, b.request.id)}
             >
               Change status to Waste
             </button>

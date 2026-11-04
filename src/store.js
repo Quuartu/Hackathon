@@ -78,7 +78,7 @@ async function act(path, body = {}) {
 }
 
 export const reportOutOfService = (id, reason) => act(`${id}/report`, { reason })
-export const approveWaste = (id) => act(`${id}/approve-waste`)
+export const approveWaste = (id, requestId) => act(`${id}/approve-waste`, { requestId })
 
 function subscribe(listener) {
   if (listeners.size === 0) refresh()
@@ -91,3 +91,47 @@ function subscribe(listener) {
 }
 
 export const useBatteries = () => useSyncExternalStore(subscribe, () => state)
+
+// ponytail: each garage's list stays in this browser, store it in Neo4j if it must follow the account across devices
+const scansKey = (email) => `battery-passport-scans:${email}`
+const scanCache = new Map()
+const scanListeners = new Set()
+
+export function readScans(email) {
+  if (!scanCache.has(email)) {
+    let saved = []
+    try {
+      saved = JSON.parse(localStorage.getItem(scansKey(email))) ?? []
+    } catch {
+      // Storage blocked: the list lasts until the page reloads.
+    }
+    scanCache.set(email, saved)
+  }
+  return scanCache.get(email)
+}
+
+export function addScan(email, id) {
+  const next = [id, ...readScans(email).filter((scanned) => scanned !== id)]
+  scanCache.set(email, next)
+  try {
+    localStorage.setItem(scansKey(email), JSON.stringify(next))
+  } catch {
+    // Storage blocked: the list lasts until the page reloads.
+  }
+  scanListeners.forEach((listener) => listener())
+}
+
+function subscribeScans(listener) {
+  const onStorage = () => {
+    scanCache.clear()
+    listener()
+  }
+  scanListeners.add(listener)
+  window.addEventListener('storage', onStorage)
+  return () => {
+    scanListeners.delete(listener)
+    window.removeEventListener('storage', onStorage)
+  }
+}
+
+export const useScans = (email) => useSyncExternalStore(subscribeScans, () => readScans(email))

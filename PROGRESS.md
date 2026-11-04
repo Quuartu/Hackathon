@@ -30,9 +30,9 @@ The app reads its data from the team's shared Neo4j database through a small API
 
 | Role | Device | Features |
 |---|---|---|
-| Garage | Tablet | Simulated scan; identification, status, key parameters and history; sends the diagnosis to the Passport Owner |
+| Garage | Tablet | QR scan (camera or photo) or typed ID, checked against the database, which adds the battery to the account's own list; identification, status, key parameters and history; sends the diagnosis to the Passport Owner |
 | Passport Owner | Desktop | Request notifications; Original → Waste status change; table of all batteries with details |
-| Sorting Centre | Mobile | Simulated scan; "Passport up to date" confirmation if the status is Waste, otherwise a warning; composition and history |
+| Sorting Centre | Mobile | QR scan (camera or photo), label or typed ID; "Passport up to date" confirmation if the status is Waste, otherwise a warning; composition and history |
 
 The first screen is login or account creation. Sign-up asks for an email, a password and a role. After login, each account goes straight to its role and cannot open the others. The 12 test accounts (3 per role) are in `src/accounts.json` and listed in the README.
 
@@ -44,7 +44,7 @@ For team testing, a "Demo mode" button at the top right opens a screen where you
 - `GET /api/batteries` reads all batteries. `POST /api/batteries/:id/report` and `POST /api/batteries/:id/approve-waste` write the two status steps. An action that no longer applies returns 409.
 - The status rules moved from `src/store.js` to the Cypher queries in `server/passport.js`.
 - Screens refresh every 5 seconds, so roles stay in sync across browsers and computers.
-- The Garage request is stored in two new `BatteryInstance` properties, `reportedReason` and `reportedAt`. Query I in `db/queries.cypher` now removes them too.
+- Garage requests are `WasteRequest` nodes, following queries K and M in `db/queries.cypher`. The API adds two rules to query K: the battery must be Original, with no request already pending. Queries I and I2 reset them.
 - History is built from dates already on the battery, not from separate nodes.
 
 ### Main files
@@ -69,7 +69,7 @@ For team testing, a "Demo mode" button at the top right opens a screen where you
 |---|---|---|
 | API between React and Neo4j, using Node's built-in `http` module and `neo4j-driver` | Database credentials must not reach the browser; three routes do not need a framework | Two processes to start: `npm run server` and `npm run dev` |
 | No fictional data as a fallback | Mock data could hide a broken connection during the demo | If the API or Aura is down, the app shows an error instead of data |
-| Simulated QR scan | Simplest option for a web app | No real QR codes or camera: you click a label or enter an ID |
+| QR reading with `jsqr`, plus a photo option | The browsers' built-in barcode detector is missing on Chrome for Windows; the photo option also works where the live camera is blocked | The live camera needs `localhost` or HTTPS |
 | English interface | Team choice | No French translation |
 | Défi postponed | Use cases come first | Still mandatory for the submission |
 | Email and password login | Replaces the role picker | Demo only, not real security: checks run in the browser and anyone can sign up with any role |
@@ -82,7 +82,7 @@ For team testing, a "Demo mode" button at the top right opens a screen where you
 
 Neo4j connection, run on 4 November 2026:
 
-- `npm test`: 11 of 11 tests passed.
+- `npm test`: 12 of 12 tests passed.
 - `npm run build`: succeeded, and the bundle contains no credentials or Neo4j driver.
 - `GET /api/batteries` returned `BAT-0001` from the shared database.
 - The real write queries ran inside a transaction that was always rolled back. The allowed steps matched; approving without a report, reporting twice, reporting after Waste, approving twice and an unknown ID did not. The database was unchanged afterwards.
@@ -111,6 +111,7 @@ Not tested on a real tablet or phone.
 
 ## Known limitations
 
+- Each garage's list is saved in the browser under its account: it does not follow the account to another device, and the API still returns every battery.
 - The database holds one battery and no extinguishing agent ("Not recorded" on screen).
 - Garage and Passport Owner show the diagnosis, module levels and alerts from Neo4j. The module reading history (query F) is not charted yet.
 - The API has no login check, because logins still live in the browser. It only accepts connections from the same computer, so it cannot be hosted online as it is.
@@ -122,7 +123,7 @@ Not tested on a real tablet or phone.
 ## Next steps
 
 1. Change the Neo4j password and remove the real values from `db/.env.example`: it was committed to this public repository.
-2. Run the first real write with the group, then have Abhi reset the battery.
+2. Run the first real write with the group, then have Abhi reset the battery (queries I and I2).
 3. Choose the Défi. The suggestion is #1 (telemetry): an abnormal module resistance would give the demo a concrete reason for the move to Waste.
 4. Prepare the slides, mockups or diagrams, and the demo video.
 

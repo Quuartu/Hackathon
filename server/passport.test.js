@@ -2,17 +2,24 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { toBattery } from './passport.js'
 
-const row = (battery) => ({
+const wasteRequest = (status) => ({
+  requestId: 'R1',
+  reason: 'Defect',
+  status,
+  createdAt: '2027-01-01T10:00:00Z',
+})
+
+const row = (battery, requests = []) => ({
   b: {
     batteryId: 'BAT-0001',
     batteryPassportId: 'BP-2027-0001',
     status: 'Original',
     manufacturingDate: '2025-03',
     dateOfPuttingIntoService: '2025-06',
-    reportedAt: null,
     statusChangedAt: null,
     ...battery,
   },
+  requests,
   type: 'EV Traction Battery',
   mo: { name: 'VD-75 NMC', modelId: 'MDL-NMC-75' },
   op: { name: 'VoltaDrive', address: 'Paris', country: 'France', email: 'contact@voltadrive.example' },
@@ -42,19 +49,17 @@ test('maps the graph to the shape the screens read', () => {
   assert.equal(battery.history.length, 2)
 })
 
-test('a report on an Original battery is a pending request', () => {
-  const battery = toBattery(row({ reportedAt: '2027-01-01T10:00:00Z', reportedReason: 'Defect' }))
-  assert.deepEqual(battery.request, { reason: 'Defect', at: '2027-01-01T10:00:00Z' })
+test('a pending WasteRequest on an Original battery is a pending request', () => {
+  const battery = toBattery(row({}, [wasteRequest('Pending')]))
+  assert.deepEqual(battery.request, { id: 'R1', reason: 'Defect', at: '2027-01-01T10:00:00Z' })
   assert.equal(battery.history.at(-1).text, 'Reported out of service: Defect')
 })
 
 test('a Waste battery has no pending request but keeps its history', () => {
-  const battery = toBattery(row({
-    status: 'Waste',
-    reportedAt: '2027-01-01T10:00:00Z',
-    reportedReason: 'Defect',
-    statusChangedAt: '2027-01-02T10:00:00Z',
-  }))
+  const battery = toBattery(row(
+    { status: 'Waste', statusChangedAt: '2027-01-02T10:00:00Z' },
+    [wasteRequest('Approved')],
+  ))
   assert.equal(battery.request, null)
   assert.equal(battery.history.length, 5)
   assert.equal(battery.history.at(-2).text, 'Status changed: Original → Waste')

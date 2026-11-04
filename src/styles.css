@@ -289,6 +289,12 @@ textarea {
   image-rendering: pixelated;
 }
 
+.qr-video {
+  width: min(100%, 480px);
+  border-radius: 6px;
+  background: var(--text);
+}
+
 .title-row {
   display: flex;
   flex-wrap: wrap;

@@ -9,7 +9,7 @@ MATCH (co)-[:HAS_CATHODE]->(ca:Cathode)
 MATCH (co)-[:HAS_ELECTROLYTE]->(el:Electrolyte)
 MATCH (b)-[:HAS_DYNAMIC_PERFORMANCE]->(dp:DynamicPerformance)
 MATCH (b)-[:HAS_DYNAMIC_DURABILITY]->(dd:DynamicDurability)
-RETURN b { .*, statusChangedAt: toString(b.statusChangedAt), reportedAt: toString(b.reportedAt) } AS b,
+RETURN b { .*, statusChangedAt: toString(b.statusChangedAt) } AS b,
        t.name AS type, mo { .* } AS mo, op { .* } AS op, sp { .* } AS sp, sd { .* } AS sd, cf { .* } AS cf,
        co { .* } AS co, an { .* } AS an, ca { .* } AS ca, el { .* } AS el, dp { .* } AS dp, dd { .* } AS dd,
        COLLECT {
@@ -21,31 +21,36 @@ RETURN b { .*, statusChangedAt: toString(b.statusChangedAt), reportedAt: toStrin
          MATCH (b)-[:HAS_MODULE]->(m:Module)-[:HAS_ALERT]->(a:Alert)
          RETURN a { .level, .message, module: m.name, createdAt: toString(a.createdAt) }
          ORDER BY a.createdAt DESC
-       } AS alerts
+       } AS alerts,
+       COLLECT {
+         MATCH (b)-[:HAS_WASTE_REQUEST]->(w:WasteRequest)
+         RETURN w { .requestId, .reason, .status, createdAt: toString(w.createdAt) }
+         ORDER BY w.createdAt
+       } AS requests
 ORDER BY b.batteryId`
 
-// The WHERE clauses are the status rules: no match means the action no longer applies.
+// Query K in db/queries.cypher, plus the status rules: no match means the action no longer applies.
 export const REPORT = `
 MATCH (b:BatteryInstance {batteryId: $id, status: 'Original'})
-WHERE b.reportedAt IS NULL
-SET b.reportedReason = $reason, b.reportedAt = datetime()
-RETURN b.batteryId AS batteryId`
+WHERE NOT EXISTS { (b)-[:HAS_WASTE_REQUEST]->(:WasteRequest {status: 'Pending'}) }
+CREATE (r:WasteRequest {requestId: randomUUID(), createdAt: datetime(), reason: $reason, status: 'Pending'})
+CREATE (b)-[:HAS_WASTE_REQUEST]->(r)
+RETURN r.requestId AS requestId`
 
+// Query M in db/queries.cypher.
 export const APPROVE = `
-MATCH (b:BatteryInstance {batteryId: $id, status: 'Original'})
-WHERE b.reportedAt IS NOT NULL
-SET b.status = 'Waste', b.statusChangedAt = datetime()
-RETURN b.batteryId AS batteryId`
+MATCH (b:BatteryInstance {batteryId: $id, status: 'Original'})-[:HAS_WASTE_REQUEST]->(r:WasteRequest {requestId: $requestId, status: 'Pending'})
+SET b.status = 'Waste', b.statusChangedAt = datetime(), r.status = 'Approved', r.resolvedAt = datetime()
+RETURN b.status AS status`
 
 // Shapes one LIST row for the screens in src/App.jsx.
-export function toBattery({ b, type, mo, op, sp, sd, cf, co, an, ca, el, dp, dd, modules, alerts }) {
+export function toBattery({ b, type, mo, op, sp, sd, cf, co, an, ca, el, dp, dd, modules, alerts, requests }) {
+  const pending = requests.find((r) => r.status === 'Pending')
   const history = [
     { at: b.manufacturingDate, actor: 'Manufacturer', text: 'Battery manufactured' },
     { at: b.dateOfPuttingIntoService, actor: 'Manufacturer', text: 'Put into service' },
+    ...requests.map((r) => ({ at: r.createdAt, actor: 'Garage', text: `Reported out of service: ${r.reason}` })),
   ]
-  if (b.reportedAt) {
-    history.push({ at: b.reportedAt, actor: 'Garage', text: `Reported out of service: ${b.reportedReason}` })
-  }
   if (b.statusChangedAt) {
     history.push(
       { at: b.statusChangedAt, actor: 'Passport Owner', text: `Status changed: Original → ${b.status}` },
@@ -90,7 +95,9 @@ export function toBattery({ b, type, mo, op, sp, sd, cf, co, an, ca, el, dp, dd,
       level: m.lastLevel,
     })),
     alerts,
-    request: b.status === 'Original' && b.reportedAt ? { reason: b.reportedReason, at: b.reportedAt } : null,
+    request: b.status === 'Original' && pending
+      ? { id: pending.requestId, reason: pending.reason, at: pending.createdAt }
+      : null,
     history,
   }
 }
