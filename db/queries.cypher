@@ -79,5 +79,67 @@ DETACH DELETE r, a;
 // I2. Run right after I: delete the waste requests of BAT-0001
 MATCH (:BatteryInstance {batteryId: 'BAT-0001'})-[:HAS_WASTE_REQUEST]->(w:WasteRequest) DETACH DELETE w;
 
+// N. APP: create a new battery with its dynamic nodes and 5 modules.
+// Parameters: $modelId, $operatorName, $batteryId, $passportId, $manufacturingDate, $serviceDate, $warranty
+// Example values: 'MDL-NMC-75', 'VoltaDrive Manufacturing', 'BAT-0002', 'BP-2027-0002', '2025-09', '2025-12', '2033-12'
+// Fails with a constraint error if batteryId or passportId already exists (this is intended).
+MATCH (mo:Model {modelId: $modelId})
+MATCH (op:EconomicOperator {name: $operatorName})
+MATCH (mo)-[:HAS_STATIC_PERFORMANCE]->(sp:StaticPerformance)
+CREATE (b:BatteryInstance {batteryId: $batteryId, batteryPassportId: $passportId, status: 'Original', diagnosis: 'OK',
+                           manufacturingDate: $manufacturingDate, dateOfPuttingIntoService: $serviceDate})
+CREATE (mo)-[:HAS_BATTERY_INSTANCE]->(b)
+CREATE (op)-[:BUILD]->(b)
+CREATE (dd:DynamicDurability {batteryId: $batteryId, warranty: $warranty, accidents: 0, numberOfFullCycles: 0, deepDischargeEvents: 0})
+CREATE (b)-[:HAS_DYNAMIC_DURABILITY]->(dd)
+CREATE (dp:DynamicPerformance {batteryId: $batteryId, soh: 100, soc: 100, remainingCapacityAh: sp.ratedCapacityAh,
+                               temperatureC: 25, internalResistanceIncreasePct: 0.0})
+CREATE (b)-[:HAS_DYNAMIC_PERFORMANCE]->(dp)
+WITH b, sp
+UNWIND range(1, 5) AS i
+CREATE (m:Module {moduleId: $batteryId + '-M' + toString(i), index: i, name: 'Module ' + toString(i),
+                  initialResistanceMohm: sp.initialInternalResistanceMohm})
+CREATE (b)-[:HAS_MODULE]->(m)
+RETURN b.batteryId AS batteryId, b.batteryPassportId AS passportId, count(m) AS modules;
+
+// O. APP: list all batteries
+MATCH (b:BatteryInstance)
+RETURN b.batteryId AS batteryId, b.batteryPassportId AS passportId, b.status AS status, b.diagnosis AS diagnosis
+ORDER BY b.batteryId;
+
+// P. Delete one battery and everything that belongs to it (test cleanup). Parameter: $batteryId
+MATCH (b:BatteryInstance {batteryId: $batteryId})
+OPTIONAL MATCH (b)-[:HAS_MODULE]->(m:Module)
+OPTIONAL MATCH (m)-[:HAS_READING]->(r:Reading)
+OPTIONAL MATCH (m)-[:HAS_ALERT]->(a:Alert)
+OPTIONAL MATCH (b)-[:HAS_DYNAMIC_PERFORMANCE]->(dp:DynamicPerformance)
+OPTIONAL MATCH (b)-[:HAS_DYNAMIC_DURABILITY]->(dd:DynamicDurability)
+OPTIONAL MATCH (b)-[:HAS_WASTE_REQUEST]->(w:WasteRequest)
+DETACH DELETE r, a, m, dp, dd, w, b;
+
+// Q. APP: mechanic screen - ALL key parameters of one battery in one row. Parameter: $pid (example 'BP-2027-0001')
+MATCH (mo:Model)-[:HAS_BATTERY_INSTANCE]->(b:BatteryInstance {batteryPassportId: $pid})
+MATCH (op:EconomicOperator)-[:BUILD]->(b)
+MATCH (mo)-[:HAS_STATIC_PERFORMANCE]->(sp:StaticPerformance)
+MATCH (mo)-[:HAS_STATIC_DURABILITY]->(sd:StaticDurability)
+MATCH (mo)-[:HAS_COMPOSITION]->(co:Composition)
+MATCH (b)-[:HAS_DYNAMIC_PERFORMANCE]->(dp:DynamicPerformance)
+MATCH (b)-[:HAS_DYNAMIC_DURABILITY]->(dd:DynamicDurability)
+RETURN b.batteryId AS batteryId, b.batteryPassportId AS passportId,
+       b.status AS status, b.diagnosis AS diagnosis,
+       b.manufacturingDate AS manufacturingDate, b.dateOfPuttingIntoService AS dateOfPuttingIntoService,
+       mo.name AS model, mo.batteryCategory AS batteryCategory, mo.batteryMassKg AS batteryMassKg,
+       op.name AS manufacturer, op.country AS manufacturerCountry, op.email AS manufacturerEmail,
+       co.batteryChemistry AS batteryChemistry,
+       sp.nominalVoltage AS nominalVoltageV, sp.minimalVoltage AS minimalVoltageV, sp.maximalVoltage AS maximalVoltageV,
+       sp.ratedCapacityAh AS ratedCapacityAh,
+       sp.initialInternalResistanceMohm AS initialInternalResistanceMohm,
+       sp.maxInternalResistanceMohm AS maxInternalResistanceMohm,
+       sd.expectedBatteryLifetimeCycles AS expectedLifetimeCycles,
+       dp.soh AS soh, dp.soc AS soc, dp.remainingCapacityAh AS remainingCapacityAh,
+       dp.temperatureC AS temperatureC, dp.internalResistanceIncreasePct AS internalResistanceIncreasePct,
+       dd.numberOfFullCycles AS numberOfFullCycles, dd.accidents AS accidents,
+       dd.deepDischargeEvents AS deepDischargeEvents, dd.warranty AS warranty;
+
 // J. WIPE EVERYTHING. Only on this dedicated hackathon instance, and only when you want a clean start.
 MATCH (n) DETACH DELETE n;
