@@ -41,15 +41,33 @@ ORDER BY r.timestamp;
 // G. See the whole battery as a graph picture (switch results to Graph view)
 MATCH p = (b:BatteryInstance {batteryId: 'BAT-0001'})-[*1..2]-(x) RETURN p;
 
-// H. Owner action (core use case): Original -> Waste. Run ONLY in the final demo.
+// H. Owner action by hand (manual test only): Original -> Waste
 MATCH (b:BatteryInstance {batteryPassportId: 'BP-2027-0001', status: 'Original'})
 SET b.status = 'Waste', b.statusChangedAt = datetime()
 RETURN b.batteryPassportId AS passportId, b.status AS status;
 
-// I. Replay the demo: reset BAT-0001 only (status, readings, alerts)
+// K. APP: mechanic taps "Report defective battery". Parameters: $pid, $reason
+// Manual test: add  :param pid => 'BP-2027-0001'  and  :param reason => 'Module 3 critical'  first
+MATCH (b:BatteryInstance {batteryPassportId: $pid})
+CREATE (r:WasteRequest {requestId: randomUUID(), createdAt: datetime(), reason: $reason, status: 'Pending'})
+CREATE (b)-[:HAS_WASTE_REQUEST]->(r)
+RETURN r.requestId AS requestId;
+
+// L. APP: owner inbox (pending requests)
+MATCH (b:BatteryInstance)-[:HAS_WASTE_REQUEST]->(r:WasteRequest {status: 'Pending'})
+RETURN b.batteryPassportId AS passportId, b.diagnosis AS diagnosis, r.requestId AS requestId,
+       r.reason AS reason, toString(r.createdAt) AS createdAt
+ORDER BY r.createdAt DESC;
+
+// M. APP: owner clicks "Change to Waste". Parameters: $pid, $rid
+MATCH (b:BatteryInstance {batteryPassportId: $pid, status: 'Original'})-[:HAS_WASTE_REQUEST]->(r:WasteRequest {requestId: $rid, status: 'Pending'})
+SET b.status = 'Waste', b.statusChangedAt = datetime(), r.status = 'Approved', r.resolvedAt = datetime()
+RETURN b.status AS status;
+
+// I. Replay the demo: reset BAT-0001 only (status, readings, alerts). Then run I2 as well.
 MATCH (b:BatteryInstance {batteryId: 'BAT-0001'})-[:HAS_DYNAMIC_PERFORMANCE]->(dp:DynamicPerformance)
 SET b.status = 'Original', b.diagnosis = 'OK', dp.internalResistanceIncreasePct = 0.0
-REMOVE b.statusChangedAt, b.reportedReason, b.reportedAt
+REMOVE b.statusChangedAt
 WITH b
 MATCH (b)-[:HAS_MODULE]->(m:Module)
 REMOVE m.lastResistanceMohm, m.lastLevel, m.lastReadingAt, m.lastIncreasePct
@@ -57,6 +75,9 @@ WITH m
 OPTIONAL MATCH (m)-[:HAS_READING]->(r:Reading)
 OPTIONAL MATCH (m)-[:HAS_ALERT]->(a:Alert)
 DETACH DELETE r, a;
+
+// I2. Run right after I: delete the waste requests of BAT-0001
+MATCH (:BatteryInstance {batteryId: 'BAT-0001'})-[:HAS_WASTE_REQUEST]->(w:WasteRequest) DETACH DELETE w;
 
 // J. WIPE EVERYTHING. Only on this dedicated hackathon instance, and only when you want a clean start.
 MATCH (n) DETACH DELETE n;
