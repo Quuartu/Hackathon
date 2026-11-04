@@ -2,6 +2,7 @@ import { useSyncExternalStore } from 'react'
 import demoAccounts from './accounts.json' with { type: 'json' }
 
 export const ROLES = {
+  manufacturer: { label: 'Battery Manufacturer', text: 'Generate a QR code from a passport ID.' },
   garage: { label: 'Garage', text: 'Scan a battery, review it and report it out of service.' },
   owner: { label: 'Passport Owner', text: 'Handle garage requests and update passport status.' },
   sorting: { label: 'Sorting Centre', text: 'Scan a received battery and check its status.' },

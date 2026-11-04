@@ -1,10 +1,18 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
+import qrcode from 'qrcode-generator'
 import { demoLogIn, logIn, logOut, ROLES, signUp, useSession } from './auth.js'
 import { approveWaste, findBattery, reportOutOfService, resetDemo, update, useBatteries } from './store.js'
 
 const formatDate = (iso) => new Date(iso).toLocaleDateString('en-GB', { dateStyle: 'medium' })
 const formatDateTime = (iso) =>
   new Date(iso).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })
+
+function qrDataUrl(text) {
+  const qr = qrcode(0, 'M')
+  qr.addData(text)
+  qr.make()
+  return qr.createDataURL(8, 32)
+}
 
 function useRoute() {
   const hash = useSyncExternalStore(
@@ -59,6 +67,7 @@ export default function App() {
       ) : (
         <main className={role === 'owner' ? 'page page-wide' : 'page'}>
           {!session && <Auth />}
+          {role === 'manufacturer' && <Manufacturer batteries={batteries} />}
           {role === 'owner' && <Owner batteries={batteries} selected={battery} />}
           {(role === 'garage' || role === 'sorting') && !batteryId && (
             <Scan role={role} batteries={batteries} />
@@ -180,6 +189,58 @@ function Auth() {
       </p>
       <button className="button-ghost" onClick={resetDemo}>Reset demo data</button>
     </div>
+  )
+}
+
+function Manufacturer({ batteries }) {
+  const [code, setCode] = useState('')
+  const [battery, setBattery] = useState(null)
+  const [notFound, setNotFound] = useState(false)
+
+  function submit(event) {
+    event.preventDefault()
+    const found = findBattery(batteries, code)
+    setBattery(found ?? null)
+    setNotFound(!found)
+  }
+
+  return (
+    <>
+      <h1>Generate QR code</h1>
+      <form className="card form" onSubmit={submit}>
+        <label htmlFor="passport">Passport ID</label>
+        <div className="form-row">
+          <input
+            id="passport"
+            list="passports"
+            value={code}
+            onChange={(event) => {
+              setCode(event.target.value)
+              setNotFound(false)
+            }}
+            placeholder="BP-FR-7F3A91"
+            required
+          />
+          <datalist id="passports">
+            {batteries.map((b) => (
+              <option value={b.batteryPassportId} key={b.batteryId}>{b.batteryId}</option>
+            ))}
+          </datalist>
+          <button>Generate QR code</button>
+        </div>
+        {notFound && <p className="error" role="alert">No battery found with this ID.</p>}
+      </form>
+      {battery && (
+        <section className="card qr">
+          <img
+            src={qrDataUrl(battery.batteryPassportId)}
+            alt={`QR code for passport ${battery.batteryPassportId}`}
+          />
+          <strong>{battery.batteryPassportId}</strong>
+          <span className="muted">{battery.batteryId} · {battery.model.name}</span>
+        </section>
+      )}
+    </>
   )
 }
 

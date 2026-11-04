@@ -277,6 +277,18 @@ textarea {
   font-size: 0.9rem;
 }
 
+.qr {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  text-align: center;
+}
+
+.qr img {
+  width: min(100%, 280px);
+  image-rendering: pixelated;
+}
+
 .title-row {
   display: flex;
   flex-wrap: wrap;
