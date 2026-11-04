@@ -7,37 +7,20 @@ export function findBattery(batteries, code) {
   )
 }
 
-export function generateUniquePassportId(existing) {
-  const existingSet =
-    existing instanceof Set
-      ? existing
-      : new Set(
-          (existing ?? []).flatMap((b) =>
-            [b?.batteryPassportId, b?.batteryId].filter(Boolean).map((id) => id.toUpperCase()),
-          ),
-        )
-
-  const bytes = new Uint8Array(3)
-  for (let attempts = 0; attempts < 1000; attempts++) {
-    if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
-      crypto.getRandomValues(bytes)
-    } else {
-      for (let j = 0; j < 3; j++) bytes[j] = Math.floor(Math.random() * 256)
-    }
-    const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('').toUpperCase()
-    const candidate = `BP-FR-${hex}`
-    if (!existingSet.has(candidate)) {
-      return candidate
-    }
-  }
-  return `BP-FR-${Date.now().toString(16).slice(-6).toUpperCase()}`
+// Next free IDs in the database's format: BAT-0002 and BP-2027-0002.
+export function nextBatteryIds(batteries) {
+  const numbers = batteries
+    .flatMap((b) => [b.batteryId, b.batteryPassportId])
+    .map((id) => Number(id.match(/-(\d+)$/)?.[1] ?? 0))
+  const next = String(Math.max(0, ...numbers) + 1).padStart(4, '0')
+  return { batteryId: `BAT-${next}`, passportId: `BP-2027-${next}` }
 }
 
 // ponytail: polling is enough for the demo, push updates only if 5 seconds of delay becomes a problem
 const POLL_MS = 5000
 const UNREACHABLE = 'Cannot reach the database. Check that the API is running (npm run server).'
 
-let state = { batteries: null, error: '', saving: false }
+let state = { batteries: null, companies: [], error: '', saving: false }
 let latestRefresh = 0
 const listeners = new Set()
 
@@ -50,9 +33,10 @@ async function refresh() {
   const ticket = ++latestRefresh
   let change
   try {
-    const response = await fetch('/api/batteries')
-    if (!response.ok) throw new Error()
-    change = { batteries: await response.json(), error: '' }
+    const responses = await Promise.all([fetch('/api/batteries'), fetch('/api/companies')])
+    if (!responses.every((response) => response.ok)) throw new Error()
+    const [batteries, companies] = await Promise.all(responses.map((response) => response.json()))
+    change = { batteries, companies, error: '' }
   } catch {
     change = { error: UNREACHABLE }
   }
@@ -60,25 +44,43 @@ async function refresh() {
   if (ticket === latestRefresh) setState(change)
 }
 
-async function act(path, body = {}) {
-  setState({ saving: true })
-  let failure = ''
+async function post(url, body) {
+  let response
+  let result
   try {
-    const response = await fetch(`/api/batteries/${path}`, {
+    response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     })
-    if (!response.ok) failure = (await response.json()).error
+    result = await response.json()
   } catch {
-    failure = UNREACHABLE
+    throw new Error(UNREACHABLE)
+  }
+  if (!response.ok) throw new Error(result.error)
+  return result
+}
+
+async function act(path, body) {
+  setState({ saving: true })
+  let failure = ''
+  try {
+    await post(`/api/batteries${path}`, body)
+  } catch (error) {
+    failure = error.message
   }
   await refresh()
   setState({ saving: false, ...(failure && { error: failure }) })
 }
 
-export const reportOutOfService = (id, reason) => act(`${id}/report`, { reason })
-export const approveWaste = (id, requestId) => act(`${id}/approve-waste`, { requestId })
+export async function createBattery(fields) {
+  const created = await post('/api/batteries', fields)
+  await refresh()
+  return created
+}
+
+export const reportOutOfService = (id, reason) => act(`/${id}/report`, { reason })
+export const approveWaste = (id, requestId) => act(`/${id}/approve-waste`, { requestId })
 
 function subscribe(listener) {
   if (listeners.size === 0) refresh()
@@ -92,46 +94,49 @@ function subscribe(listener) {
 
 export const useBatteries = () => useSyncExternalStore(subscribe, () => state)
 
-// ponytail: each garage's list stays in this browser, store it in Neo4j if it must follow the account across devices
-const scansKey = (email) => `battery-passport-scans:${email}`
-const scanCache = new Map()
-const scanListeners = new Set()
+// ponytail: each account's lists stay in this browser with the account itself, so they do not follow it to another device
+const listKey = (email, kind) => `battery-passport-${kind}:${email}`
+const listCache = new Map()
+const listListeners = new Set()
 
-export function readScans(email) {
-  if (!scanCache.has(email)) {
+export function readAccountList(email, kind) {
+  const key = listKey(email, kind)
+  if (!listCache.has(key)) {
     let saved = []
     try {
-      saved = JSON.parse(localStorage.getItem(scansKey(email))) ?? []
+      saved = JSON.parse(localStorage.getItem(key)) ?? []
     } catch {
       // Storage blocked: the list lasts until the page reloads.
     }
-    scanCache.set(email, saved)
+    listCache.set(key, saved)
   }
-  return scanCache.get(email)
+  return listCache.get(key)
 }
 
-export function addScan(email, id) {
-  const next = [id, ...readScans(email).filter((scanned) => scanned !== id)]
-  scanCache.set(email, next)
+export function addToAccountList(email, kind, id) {
+  const next = [id, ...readAccountList(email, kind).filter((saved) => saved !== id)]
+  const key = listKey(email, kind)
+  listCache.set(key, next)
   try {
-    localStorage.setItem(scansKey(email), JSON.stringify(next))
+    localStorage.setItem(key, JSON.stringify(next))
   } catch {
     // Storage blocked: the list lasts until the page reloads.
   }
-  scanListeners.forEach((listener) => listener())
+  listListeners.forEach((listener) => listener())
 }
 
-function subscribeScans(listener) {
+function subscribeLists(listener) {
   const onStorage = () => {
-    scanCache.clear()
+    listCache.clear()
     listener()
   }
-  scanListeners.add(listener)
+  listListeners.add(listener)
   window.addEventListener('storage', onStorage)
   return () => {
-    scanListeners.delete(listener)
+    listListeners.delete(listener)
     window.removeEventListener('storage', onStorage)
   }
 }
 
-export const useScans = (email) => useSyncExternalStore(subscribeScans, () => readScans(email))
+export const useAccountList = (email, kind) =>
+  useSyncExternalStore(subscribeLists, () => readAccountList(email, kind))

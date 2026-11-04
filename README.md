@@ -89,7 +89,9 @@ Test accounts, all with the password `demo1234`:
 
 These accounts are stored in `src/accounts.json`, with plain-text passwords for testing, and work on every computer that clones the repo. To add one, add an entry to the file with `email`, `role` (`manufacturer`, `garage`, `owner` or `sorting`) and `password`.
 
-You can also create an account with an email, a password and a role. It is saved only in your browser, not in the repo. After login, each account goes straight to its role.
+The three manufacturer test accounts belong to the company `VoltaDrive`.
+
+You can also create an account with an email, a password and a role. A Battery Manufacturer account also chooses its company from a list of the companies in the database. Accounts are saved only in your browser, not in the repo or in Neo4j. After login, each account goes straight to its role.
 
 Open the app in three tabs and log in with a different account in each. Each tab keeps its own login, and screens refresh every 5 seconds.
 
@@ -99,15 +101,16 @@ Open the app in three tabs and log in with a different account in each. Each tab
 2. **Passport Owner:** in **Notifications**, click **Change status to Waste**.
 3. **Sorting Centre:** scan `BAT-0001` and check that the page shows **Passport up to date** with the status Waste.
 
-The **Battery Manufacturer** role generates a QR code from a passport ID, for example `BP-2027-0001`. The code contains that ID. A newly generated ID is not saved to the database.
+The **Battery Manufacturer** role creates a battery in the shared database and shows its QR code, which contains the passport ID. The form's economic operators and models come from the account's company. It can also show the QR code of a battery it created, or of another battery of its company. The form suggests the next free IDs, such as `BAT-0002` and `BP-2027-0002`. Tell the group before creating batteries; test batteries are deleted with query P in [db/queries.cypher](db/queries.cypher).
 
 For testing, **Demo mode** at the top right lets you choose a role and enter without logging in. It only appears with `npm run dev`, not in production builds.
 
 ## Limitations
 
-- The database holds one battery, `BAT-0001`. It has no extinguishing agent, so that field shows "Not recorded".
+- The database has no extinguishing agent, so that field shows "Not recorded".
 - The API has no login check and only accepts connections from the same computer. Add both a login check and hosting setup before putting it online.
-- Each garage's list is saved in the browser, so it does not follow the account to another browser or computer. It only limits what the screens show: the API still returns every battery.
+- Each account's lists (batteries scanned or created) are saved in the browser at that address, so they do not follow the account to another browser, computer or port. They only limit what the screens show: the API still returns every battery.
+- An account created with sign-up can only log in from the browser where it was created. To use an account on every computer, add it to `src/accounts.json`.
 - If the free Aura instance is paused, the app shows an error until Abhi resumes it (console.neo4j.io).
 - Garage and Sorting Centre scan QR codes with the camera or a photo. Browsers only allow the live camera on `localhost` or HTTPS, so over plain HTTP on a local network address use a photo or enter the ID.
 - Login is for the demo only, not real security. Checks run in the browser, created accounts stay in that browser, and anyone can sign up with any role. Passwords of created accounts are stored as salted hashes; those in `src/accounts.json` are in plain text.

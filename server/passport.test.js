@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { toBattery } from './passport.js'
+import { parseNewBattery, toBattery } from './passport.js'
 
 const wasteRequest = (status) => ({
   requestId: 'R1',
@@ -47,6 +47,45 @@ test('maps the graph to the shape the screens read', () => {
   assert.equal(battery.alerts[0].module, 'Module 3')
   assert.equal(battery.request, null)
   assert.equal(battery.history.length, 2)
+})
+
+test('modules come out in order and alerts newest first', () => {
+  const battery = toBattery({
+    ...row(),
+    modules: [{ index: 2, name: 'Module 2' }, { index: 1, name: 'Module 1' }],
+    alerts: [
+      { message: 'old', createdAt: '2027-01-01T10:00:00Z' },
+      { message: 'new', createdAt: '2027-01-02T10:00:00Z' },
+    ],
+  })
+  assert.deepEqual(battery.modules.map((m) => m.name), ['Module 1', 'Module 2'])
+  assert.equal(battery.alerts[0].message, 'new')
+})
+
+const newBattery = {
+  modelId: 'MDL-NMC-75',
+  operatorName: 'VoltaDrive Manufacturing',
+  batteryId: ' bat-0002 ',
+  passportId: 'BP-2027-0002',
+  manufacturingDate: '2025-09',
+  serviceDate: '2025-12',
+  warranty: '2033-12',
+}
+
+test('a valid new battery is accepted, with IDs cleaned up', () => {
+  const { values, error } = parseNewBattery(newBattery)
+  assert.equal(error, undefined)
+  assert.equal(values.batteryId, 'BAT-0002')
+})
+
+test('invalid new batteries are refused', () => {
+  const refused = (change) => parseNewBattery({ ...newBattery, ...change }).error
+  assert.ok(refused({ modelId: '' }))
+  assert.ok(refused({ batteryId: 'BAT/0002' }))
+  assert.ok(refused({ passportId: 5 }))
+  assert.ok(refused({ warranty: '2033-13' }))
+  assert.ok(refused({ serviceDate: '2025-01' }))
+  assert.ok(refused({ warranty: '2025-10' }))
 })
 
 test('a pending WasteRequest on an Original battery is a pending request', () => {

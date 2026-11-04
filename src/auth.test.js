@@ -48,6 +48,19 @@ test('sign-up rejects duplicate email, short password and unknown role', async (
   await assert.rejects(createAccount([], { ...details, role: 'admin' }), /account type/)
 })
 
+test('a manufacturer must choose a company, and other roles do not store one', async () => {
+  const maker = { ...details, role: 'manufacturer' }
+  await assert.rejects(createAccount([], maker), /Choose a company/)
+  assert.equal((await createAccount([], { ...maker, company: 'VoltaDrive' })).company, 'VoltaDrive')
+  assert.equal((await createAccount([], { ...details, company: 'VoltaDrive' })).company, undefined)
+})
+
+test('every manufacturer test account belongs to a company', () => {
+  for (const { email, role, company } of accounts) {
+    if (role === 'manufacturer') assert.ok(company, email)
+  }
+})
+
 test('same password gets a different salt and hash per account', async () => {
   const first = await createAccount([], details)
   const second = await createAccount([], { ...details, email: 'other@garage.example' })

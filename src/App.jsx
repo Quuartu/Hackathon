@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'reac
 import jsQR from 'jsqr'
 import qrcode from 'qrcode-generator'
 import { demoLogIn, logIn, logOut, ROLES, signUp, useSession } from './auth.js'
-import { addScan, approveWaste, findBattery, generateUniquePassportId, reportOutOfService, useBatteries, useScans } from './store.js'
+import { addToAccountList, approveWaste, createBattery, findBattery, nextBatteryIds, reportOutOfService, useAccountList, useBatteries } from './store.js'
 
 // The database stores some dates as year and month only, like 2033-06.
 const isMonth = (iso) => iso.length === 7
@@ -53,12 +53,12 @@ function useRoute() {
 export default function App() {
   const session = useSession()
   const route = useRoute()
-  const { batteries, error } = useBatteries()
+  const { batteries, companies, error } = useBatteries()
   const [demoOpen, setDemoOpen] = useState(false)
   const role = session?.role
   const wrongRoute = session && route.role !== role
   const batteryId = wrongRoute ? undefined : route.batteryId
-  const scans = useScans(session?.email)
+  const scans = useAccountList(session?.email, 'scans')
   // A garage only opens batteries it has scanned, even from a direct URL.
   const canOpen = role !== 'garage' || scans.includes(batteryId)
   const battery = canOpen ? batteries?.find((b) => b.batteryId === batteryId) : undefined
@@ -98,7 +98,9 @@ export default function App() {
           {session && !batteries && !error && <p className="muted" role="status">Loading passports…</p>}
           {session && batteries && (
             <>
-              {role === 'manufacturer' && <Manufacturer batteries={batteries} />}
+              {role === 'manufacturer' && (
+                <Manufacturer batteries={batteries} companies={companies} session={session} />
+              )}
               {role === 'owner' && <Owner batteries={batteries} selected={battery} />}
               {(role === 'garage' || role === 'sorting') && !batteryId && (
                 <Scan role={role} batteries={batteries} scans={scans} email={session.email} />
@@ -140,10 +142,12 @@ function DemoMode({ onPick }) {
 }
 
 function Auth() {
+  const { companies } = useBatteries()
   const [isSignUp, setIsSignUp] = useState(false)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [role, setRole] = useState('')
+  const [company, setCompany] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
@@ -152,7 +156,7 @@ function Auth() {
     setError('')
     setBusy(true)
     try {
-      if (isSignUp) await signUp({ email, password, role })
+      if (isSignUp) await signUp({ email, password, role, company })
       else await logIn(email, password)
     } catch (failure) {
       setError(failure.message)
@@ -205,6 +209,23 @@ function Auth() {
             ))}
           </fieldset>
         )}
+        {isSignUp && role === 'manufacturer' && (
+          <>
+            <label htmlFor="company">Company</label>
+            <select
+              id="company"
+              value={company}
+              onChange={(event) => setCompany(event.target.value)}
+              required
+            >
+              <option value="">Choose your company</option>
+              {companies.map(({ name }) => <option key={name}>{name}</option>)}
+            </select>
+            {companies.length === 0 && (
+              <p className="error" role="alert">Companies could not be loaded from the database.</p>
+            )}
+          </>
+        )}
         {error && <p className="error" role="alert">{error}</p>}
         <button disabled={busy}>{isSignUp ? 'Create account' : 'Log in'}</button>
       </form>
@@ -224,95 +245,124 @@ function Auth() {
   )
 }
 
-function Manufacturer({ batteries }) {
-  // Pre-index existing IDs in a Set for O(1) checks
-  const existingIds = useMemo(() => {
-    const set = new Set()
-    for (const b of batteries) {
-      if (b.batteryPassportId) set.add(b.batteryPassportId.toUpperCase())
-      if (b.batteryId) set.add(b.batteryId.toUpperCase())
-    }
-    return set
-  }, [batteries])
+const WARRANTY_YEARS = 8
 
-  // Suggested unique ID generated lazily on mount
-  const [suggestedId] = useState(() => generateUniquePassportId(existingIds))
-  const [code, setCode] = useState(suggestedId)
-  const [activeCode, setActiveCode] = useState(suggestedId)
+function defaultDates() {
+  const month = new Date().toISOString().slice(0, 7)
+  const warranty = `${Number(month.slice(0, 4)) + WARRANTY_YEARS}${month.slice(4)}`
+  return { manufacturingDate: month, serviceDate: month, warranty }
+}
 
-  // Find if activeCode matches an existing battery
-  const matchedBattery = useMemo(() => {
-    const clean = activeCode.trim()
-    return clean ? findBattery(batteries, clean) : null
-  }, [batteries, activeCode])
+const BATTERY_FIELDS = [
+  ['batteryId', 'Battery ID', 'text'],
+  ['passportId', 'Passport ID', 'text'],
+  ['manufacturingDate', 'Manufacturing date', 'month'],
+  ['serviceDate', 'Put into service', 'month'],
+  ['warranty', 'Warranty until', 'month'],
+]
 
-  // Memoize QR code generation to avoid re-computing on unrelated renders
-  const qrUrl = useMemo(() => {
-    const clean = activeCode.trim()
-    if (!clean) return null
-    try {
-      return qrDataUrl(clean)
-    } catch {
-      return null
-    }
-  }, [activeCode])
-
-  function handleSuggestNew() {
-    const nextId = generateUniquePassportId(existingIds)
-    setCode(nextId)
-    setActiveCode(nextId)
+function Manufacturer({ batteries, companies, session }) {
+  // Demo mode has no company, so it uses the first one.
+  const company = companies.find(({ name }) => name === session.company) ?? companies[0]
+  const models = company?.models ?? []
+  const operators = company?.operators ?? []
+  const createdIds = useAccountList(session.email, 'created')
+  const mine = batteries.filter((b) => createdIds.includes(b.batteryId))
+  const companyOthers = batteries.filter(
+    (b) => operators.includes(b.operator.name) && !createdIds.includes(b.batteryId),
+  )
+  // Only what the user changed is kept, so the suggested IDs follow the database until then.
+  const [edits, setEdits] = useState({})
+  const fields = {
+    modelId: models[0] ?? '',
+    operatorName: operators[0] ?? '',
+    ...nextBatteryIds(batteries),
+    ...defaultDates(),
+    ...edits,
   }
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [created, setCreated] = useState('')
+  const [qrCode, setQrCode] = useState('')
+  const qrUrl = useMemo(() => (qrCode ? qrDataUrl(qrCode) : null), [qrCode])
+  const qrBattery = batteries.find((b) => b.batteryPassportId === qrCode)
+  const batteryOption = (b) => (
+    <option value={b.batteryPassportId} key={b.batteryId}>
+      {b.batteryPassportId} ({b.batteryId})
+    </option>
+  )
 
-  function submit(event) {
+  const edit = (name) => (event) => setEdits({ ...edits, [name]: event.target.value })
+
+  async function submit(event) {
     event.preventDefault()
-    const clean = code.trim().toUpperCase()
-    setActiveCode(clean)
+    setBusy(true)
+    setError('')
+    setCreated('')
+    try {
+      const { batteryId, passportId } = await createBattery(fields)
+      addToAccountList(session.email, 'created', batteryId)
+      setCreated(batteryId)
+      setQrCode(passportId)
+      setEdits({})
+    } catch (failure) {
+      setError(failure.message)
+    }
+    setBusy(false)
   }
 
   return (
     <>
-      <h1>Generate QR code</h1>
+      <h1>Create battery</h1>
       <form className="card form" onSubmit={submit}>
-        <label htmlFor="passport">Passport ID</label>
-        <div className="form-row">
-          <input
-            id="passport"
-            list="passports"
-            value={code}
-            onChange={(event) => setCode(event.target.value)}
-            placeholder="BP-2027-0001"
-            required
-          />
-          <datalist id="passports">
-            {batteries.map((b) => (
-              <option value={b.batteryPassportId} key={b.batteryId}>{b.batteryId}</option>
-            ))}
-          </datalist>
-          <button type="submit">Generate QR code</button>
-          <button
-            type="button"
-            className="button-ghost"
-            onClick={handleSuggestNew}
-            title="Suggest another unique passport ID"
-          >
-            Suggest another
-          </button>
-        </div>
+        {!company && <p className="error" role="alert">No company found in the database.</p>}
+        <label htmlFor="modelId">Model</label>
+        <select id="modelId" value={fields.modelId} onChange={edit('modelId')} required>
+          {models.map((model) => <option key={model}>{model}</option>)}
+        </select>
+        <label htmlFor="operatorName">Economic operator</label>
+        <select id="operatorName" value={fields.operatorName} onChange={edit('operatorName')} required>
+          {operators.map((operator) => <option key={operator}>{operator}</option>)}
+        </select>
+        {BATTERY_FIELDS.map(([name, label, type]) => (
+          <div className="form" key={name}>
+            <label htmlFor={name}>{label}</label>
+            <input id={name} type={type} value={fields[name]} onChange={edit(name)} required />
+          </div>
+        ))}
+        <p className="muted">This saves the battery to the database shared by the whole team.</p>
+        {error && <p className="error" role="alert">{error}</p>}
+        <button disabled={busy || !company}>Create battery</button>
       </form>
+      {created && (
+        <Banner tone="success" title="Battery created">
+          {created} is now in the database. Its QR code is below.
+        </Banner>
+      )}
       {qrUrl && (
         <section className="card qr">
-          <img
-            src={qrUrl}
-            alt={`QR code for passport ${activeCode}`}
-          />
-          <strong>{activeCode}</strong>
-          {matchedBattery ? (
-            <span className="muted">{matchedBattery.batteryId} · {matchedBattery.model.name}</span>
-          ) : (
-            <span className="badge badge-available">New available passport</span>
-          )}
+          <img src={qrUrl} alt={`QR code for passport ${qrCode}`} />
+          <strong>{qrCode}</strong>
+          {qrBattery && <span className="muted">{qrBattery.batteryId} · {qrBattery.model.name}</span>}
         </section>
       )}
+      <section className="card form">
+        <label htmlFor="existing">Show the QR code of an existing battery</label>
+        <select
+          id="existing"
+          value={qrBattery ? qrCode : ''}
+          onChange={(event) => {
+            setCreated('')
+            setQrCode(event.target.value)
+          }}
+        >
+          <option value="">Choose a battery</option>
+          {mine.length > 0 && <optgroup label="Created by you">{mine.map(batteryOption)}</optgroup>}
+          {companyOthers.length > 0 && (
+            <optgroup label={`Other ${company.name} batteries`}>{companyOthers.map(batteryOption)}</optgroup>
+          )}
+        </select>
+      </section>
     </>
   )
 }
@@ -411,7 +461,7 @@ function Scan({ role, batteries, scans, email }) {
   function openBattery(value) {
     const battery = findBattery(batteries, value)
     if (!battery) return setNotFound(true)
-    if (isGarage) addScan(email, battery.batteryId)
+    if (isGarage) addToAccountList(email, 'scans', battery.batteryId)
     window.location.hash = `#/${role}/${battery.batteryId}`
     return undefined
   }

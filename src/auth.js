@@ -32,9 +32,10 @@ async function hashPassword(password, salt) {
   return toHex(new Uint8Array(bits))
 }
 
-export async function createAccount(accounts, { email, password, role }) {
+export async function createAccount(accounts, { email, password, role, company }) {
   const normalized = normalizeEmail(email)
   if (!ROLES[role]) throw new Error('Choose an account type.')
+  if (role === 'manufacturer' && !company) throw new Error('Choose a company.')
   if (password.length < MIN_PASSWORD_LENGTH) {
     throw new Error(`Password must be at least ${MIN_PASSWORD_LENGTH} characters.`)
   }
@@ -42,7 +43,8 @@ export async function createAccount(accounts, { email, password, role }) {
     throw new Error('An account with this email already exists.')
   }
   const salt = toHex(crypto.getRandomValues(new Uint8Array(16)))
-  return { email: normalized, role, salt, hash: await hashPassword(password, salt) }
+  const hash = await hashPassword(password, salt)
+  return { email: normalized, role, ...(role === 'manufacturer' && { company }), salt, hash }
 }
 
 export async function verifyLogin(accounts, email, password) {
@@ -97,7 +99,7 @@ function setSession(next) {
   listeners.forEach((listener) => listener())
 }
 
-const startSession = ({ email, role }) => setSession({ email, role })
+const startSession = ({ email, role, company }) => setSession({ email, role, company })
 
 export async function signUp(details) {
   const accounts = loadAccounts()

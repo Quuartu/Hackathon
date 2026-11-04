@@ -47,16 +47,19 @@
   {
     "email": "manufacturer1@demo.example",
     "role": "manufacturer",
+    "company": "VoltaDrive",
     "password": "demo1234"
   },
   {
     "email": "manufacturer2@demo.example",
     "role": "manufacturer",
+    "company": "VoltaDrive",
     "password": "demo1234"
   },
   {
     "email": "manufacturer3@demo.example",
     "role": "manufacturer",
+    "company": "VoltaDrive",
     "password": "demo1234"
   }
 ]

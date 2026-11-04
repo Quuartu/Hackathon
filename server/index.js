@@ -1,6 +1,6 @@
 import { createServer } from 'node:http'
 import neo4j from 'neo4j-driver'
-import { APPROVE, LIST, REPORT, toBattery } from './passport.js'
+import { APPROVE, COMPANIES, CREATE_BATTERY, LIST, parseNewBattery, REPORT, toBattery } from './passport.js'
 
 const { NEO4J_URI, NEO4J_USERNAME, NEO4J_PASSWORD, NEO4J_DATABASE } = process.env
 const PORT = 3001
@@ -34,21 +34,40 @@ async function write(response, cypher, params) {
   else send(response, 409, { error: 'This action no longer applies to this battery.' })
 }
 
+async function create(response, body) {
+  const { values, error } = parseNewBattery(body)
+  if (error) return send(response, 400, { error })
+  try {
+    const { records } = await query(CREATE_BATTERY, values, neo4j.routing.WRITE)
+    if (!records.length) return send(response, 400, { error: 'Unknown model or operator.' })
+    return send(response, 201, records[0].toObject())
+  } catch (failure) {
+    if (failure.code !== 'Neo.ClientError.Schema.ConstraintValidationFailed') throw failure
+    return send(response, 409, { error: 'A battery with this battery ID or passport ID already exists.' })
+  }
+}
+
 async function handle(request, response) {
-  const [, id, action] = request.url.match(/^\/api\/batteries(?:\/([^/]+)\/(report|approve-waste))?$/) ?? []
+  const [path, id, action] = request.url.match(/^\/api\/batteries(?:\/([^/]+)\/(report|approve-waste))?$/) ?? []
 
   if (request.method === 'GET' && request.url === '/api/batteries') {
     const { records } = await query(LIST, {}, neo4j.routing.READ)
     return send(response, 200, records.map((record) => toBattery(record.toObject())))
   }
-  if (request.method !== 'POST' || !action) return send(response, 404, { error: 'Not found.' })
+  if (request.method === 'GET' && request.url === '/api/companies') {
+    const { records } = await query(COMPANIES, {}, neo4j.routing.READ)
+    return send(response, 200, records.map((record) => record.toObject()))
+  }
+  if (request.method !== 'POST' || !path) return send(response, 404, { error: 'Not found.' })
 
   // A JSON content type stops other websites from posting here through the browser.
   if (request.headers['content-type'] !== 'application/json') {
     return send(response, 415, { error: 'Send JSON.' })
   }
-  const { reason, requestId } = await readJson(request)
+  const body = await readJson(request)
+  if (!action) return create(response, body)
 
+  const { reason, requestId } = body
   if (action === 'approve-waste') {
     if (typeof requestId !== 'string' || !requestId) return send(response, 400, { error: 'Invalid request.' })
     return write(response, APPROVE, { id, requestId })
