@@ -14,7 +14,7 @@ The app reads and writes the team's shared Neo4j database through a small API, a
 | Use cases of the brief's three roles, with Battery Manufacturer covering the Passport Owner | Done |
 | README to replay the demo and start from zero in VS Code | Done |
 | Neo4j | Connected; full flow on real data still to be confirmed with the group |
-| At least 1 of the 6 Défis | #1 (telemetry) in progress: data reaches the app and Neo4j; a real sensor or simulator through ngrok is still to be tested |
+| At least 1 of the 6 Défis | #1 (telemetry) in progress: data reaches the app; the write to Neo4j has only run in a rolled-back transaction; a real sensor or simulator through ngrok is still to be tested |
 | Summary slides (10-15) | Not done |
 | Mockups and/or diagrams | Not done |
 | Demo video or URL | Not done |
@@ -33,7 +33,7 @@ In order, on 4 November 2026:
 8. **Company on manufacturer accounts:** sign-up asks for a company from a list of the companies in Neo4j, and the account is saved locally. The company decides which models and economic operators the form offers. Batteries get no new field, and accounts add nothing to Neo4j.
 9. **New roles:** Passport Owner became a read-only Customer. Battery Manufacturer now also receives garage requests, approves Waste and lists all its company's batteries with details and QR codes. Sorting Centre, like Garage and Customer, only sees the batteries it has scanned.
 10. **Telemetry (by Malo):** the API receives module readings as JSON, also through ngrok, and holds them for review. Garage and Battery Manufacturer compare them with the database and write them to Neo4j with **Update values**.
-11. **Telemetry fixes after review:** the overall resistance increase is now updated; the diagnosis and `Reading` property names match the team's emulator; missing or impossible readings are refused instead of counting as `OK`; the API listens on this computer only; through ngrok only telemetry routes are available, and only they allow other websites; the apply route needs JSON; the simulate button is left out of production builds; and the texts are in English.
+11. **Telemetry fixes after review:** the overall resistance increase is now updated; the diagnosis and `Reading` property names match the team's emulator; missing or impossible readings are refused instead of counting as `OK`; the API listens on this computer only; through ngrok only telemetry routes are available, and only they allow other websites; the apply route needs JSON; `POST /api/telemetry/apply`, which wrote readings without review, is removed; the simulate button is left out of production builds; and the texts are in English.
 
 ## What has been done
 
@@ -122,10 +122,13 @@ Neo4j connection, run on 4 November 2026:
   - a new battery sends only the fields of query N, and its QR code opens it for a Garage;
   - lists stay separate per account and survive reloads, and logging out and in; a direct URL is blocked for another garage;
   - QR codes read from a photo, a large image and a simulated camera, with clear messages for unknown codes, invalid files and a refused camera;
+  - staged telemetry appears in the Modules table next to the database values; Garage and Battery Manufacturer get **Update values**, and Customer does not;
   - no horizontal scrolling at the widths checked for each flow, and no console errors other than the favicon 404.
 - With the API stopped, the app shows a "Data problem" banner.
 
-**Not confirmed:** the whole flow on real data through the screens, including creating a battery with the final code. The database shows that someone on the team approved a request on `BAT-0001` and created `BAT-0002`, but not whether that used the screens. To repeat with the group, following the demo steps in the README, with Abhi resetting afterwards.
+A clean clone of the merged `main` installed, passed the tests, built and read the database.
+
+**Not confirmed:** the whole flow on real data through the screens, including creating a battery with the final code and clicking **Update values**. The database shows that someone on the team approved a request on `BAT-0001` and created `BAT-0002`, but not whether that used the screens. To repeat with the group, following the demo steps in the README, with Abhi resetting afterwards.
 
 Not tested: Windows commands, a real webcam and QR reading from a phone.
 
@@ -153,7 +156,7 @@ Not tested on a real tablet or phone.
 - The API has no login check, because logins still live in the browser. It only accepts connections from the same computer, so it cannot be hosted online as it is.
 - The transfer to the sorting centre is only a line in the history: there is no order, carrier or document (that is Défi #2).
 - The Garage report is free text. New batteries show "No reading" until telemetry or the team's simulator updates them.
-- Telemetry thresholds are fixed in the code (`OK` up to 4.0 mΩ, `WARNING` up to 5.0, then `CRITICAL`), so they do not follow `StaticPerformance.maxInternalResistanceMohm` for other models. Telemetry without a battery ID goes to `BAT-0001`. Anyone with the ngrok URL can send readings, though they only wait for review.
+- Telemetry thresholds are fixed in the code (`OK` up to 4.0 mΩ, `WARNING` up to 5.0, then `CRITICAL`), so they do not follow `StaticPerformance.maxInternalResistanceMohm` for other models. Telemetry without a battery ID goes to `BAT-0001`. Anyone with the ngrok URL can send readings, though they only wait for review. A simulator on another computer must go through ngrok, because the API no longer accepts network connections.
 - The Battery Manufacturer cannot reject a request, because the brief does not include it.
 
 ## Next steps
@@ -162,6 +165,18 @@ Not tested on a real tablet or phone.
 2. Confirm the whole flow on real data with the group, then have Abhi reset the battery (queries I and I2) and delete test batteries (query P).
 3. Finish Défi #1: test with a real sensor or simulator through ngrok, and decide whether the telemetry update belongs to Garage, Battery Manufacturer or both.
 4. Prepare the slides, mockups or diagrams, and the demo video.
+
+## Open decisions
+
+- **Accounts in MongoDB (not started):** this would make accounts and scanned lists follow a user to any computer. Proposal: store accounts and lists in MongoDB, load the test accounts with hashed passwords, and have the API check login and role. Batteries stay in Neo4j. It needs a `MONGODB_URI`, kept only in `db/.env`.
+- **Who can click Update values:** see step 3 above.
+- **`customer-role` branch:** already merged into `main`, so it can be deleted.
+
+## Working together
+
+- Database rules are in [db/README_TEAM.md](db/README_TEAM.md): tell the group before changing data, only Abhi runs the scenario and the reset, and nobody runs query J.
+- Proposal, still to agree: work on a branch and tell the group before merging into `main`, so that two people's changes do not collide.
+- After every `git pull`, restart both terminals, as the README explains.
 
 ## Stake holders and their needs :  
 
