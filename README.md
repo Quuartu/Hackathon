@@ -1,6 +1,6 @@
 # Battery Passport
 
-Proof of concept for the ESILV x Capgemini Engineering hackathon: a React web app covering the Garage, Passport Owner and Sorting Centre roles, with a small API that reads and writes the team's shared Neo4j database.
+Proof of concept for the ESILV x Capgemini Engineering hackathon: a React web app covering the Battery Manufacturer, Garage, Customer and Sorting Centre roles, with a small API that reads and writes the team's shared Neo4j database.
 
 ```
 React (browser)  →  API in server/  →  Neo4j Aura
@@ -84,10 +84,10 @@ Test accounts, all with the password `demo1234`:
 |---|---|
 | `manufacturer1@demo.example`, `manufacturer2@demo.example`, `manufacturer3@demo.example` | Battery Manufacturer |
 | `garage1@demo.example`, `garage2@demo.example`, `garage3@demo.example` | Garage |
-| `owner1@demo.example`, `owner2@demo.example`, `owner3@demo.example` | Passport Owner |
+| `customer1@demo.example`, `customer2@demo.example`, `customer3@demo.example` | Customer |
 | `sorting1@demo.example`, `sorting2@demo.example`, `sorting3@demo.example` | Sorting Centre |
 
-These accounts are stored in `src/accounts.json`, with plain-text passwords for testing, and work on every computer that clones the repo. To add one, add an entry to the file with `email`, `role` (`manufacturer`, `garage`, `owner` or `sorting`) and `password`.
+These accounts are stored in `src/accounts.json`, with plain-text passwords for testing, and work on every computer that clones the repo. To add one, add an entry to the file with `email`, `role` (`manufacturer`, `garage`, `customer` or `sorting`) and `password`. A `manufacturer` also needs a `company`.
 
 The three manufacturer test accounts belong to the company `VoltaDrive`.
 
@@ -97,11 +97,15 @@ Open the app in three tabs and log in with a different account in each. Each tab
 
 **These steps change the database that the whole team shares.** Tell the group first. Afterwards, only Abhi can restore the battery, with queries I and I2 in [db/queries.cypher](db/queries.cypher).
 
-1. **Garage:** scan the QR code of `BP-2027-0001` (generate it with the **Battery Manufacturer** role) or enter `BAT-0001`, enter a diagnosis, then click **Notify Passport Owner**. Each garage account only sees the batteries it has scanned, in **Your batteries**.
-2. **Passport Owner:** in **Notifications**, click **Change status to Waste**.
-3. **Sorting Centre:** scan `BAT-0001` and check that the page shows **Passport up to date** with the status Waste.
+1. **Battery Manufacturer:** open **Create new battery**, create one, and keep its QR code on screen. The QR code contains the passport ID.
+2. **Garage:** scan that QR code or enter the battery's ID, enter a diagnosis, then click **Notify manufacturer**.
+3. **Battery Manufacturer:** in **Notifications**, click **Change status to Waste**.
+4. **Customer:** scan the same battery and check that it shows **Out of service**. This role is read-only.
+5. **Sorting Centre:** scan it and check that the page shows **Passport up to date** with the status Waste.
 
-The **Battery Manufacturer** role creates a battery in the shared database and shows its QR code, which contains the passport ID. The form's economic operators and models come from the account's company. It can also show the QR code of a battery it created, or of another battery of its company. The form suggests the next free IDs, such as `BAT-0002` and `BP-2027-0002`. Tell the group before creating batteries; test batteries are deleted with query P in [db/queries.cypher](db/queries.cypher).
+Garage, Customer and Sorting Centre each only see the batteries they have scanned, in **Your batteries**.
+
+The **Battery Manufacturer** role covers the brief's Passport Owner: it handles garage requests and sees all the batteries of its company, with their details and QR codes. The form's economic operators and models come from the account's company, and it suggests the next free IDs, such as `BAT-0002` and `BP-2027-0002`. Tell the group before creating batteries; test batteries are deleted with query P in [db/queries.cypher](db/queries.cypher).
 
 For testing, **Demo mode** at the top right lets you choose a role and enter without logging in. It only appears with `npm run dev`, not in production builds.
 
@@ -109,10 +113,11 @@ For testing, **Demo mode** at the top right lets you choose a role and enter wit
 
 - The database has no extinguishing agent, so that field shows "Not recorded".
 - The API has no login check and only accepts connections from the same computer. Add both a login check and hosting setup before putting it online.
-- Each account's lists (batteries scanned or created) are saved in the browser at that address, so they do not follow the account to another browser, computer or port. They only limit what the screens show: the API still returns every battery.
+- Each account's list of scanned batteries is saved in the browser at that address, so it does not follow the account to another browser, computer or port. Lists and company filters only limit what the screens show: the API still returns every battery.
+- A battery joins a customer's list as soon as they scan it, so two customers can list the same battery.
 - An account created with sign-up can only log in from the browser where it was created. To use an account on every computer, add it to `src/accounts.json`.
 - If the free Aura instance is paused, the app shows an error until Abhi resumes it (console.neo4j.io).
-- Garage and Sorting Centre scan QR codes with the camera or a photo. Browsers only allow the live camera on `localhost` or HTTPS, so over plain HTTP on a local network address use a photo or enter the ID.
+- Garage, Customer and Sorting Centre scan QR codes with the camera or a photo. Browsers only allow the live camera on `localhost` or HTTPS, so over plain HTTP on a local network address use a photo or enter the ID.
 - Login is for the demo only, not real security. Checks run in the browser, created accounts stay in that browser, and anyone can sign up with any role. Passwords of created accounts are stored as salted hashes; those in `src/accounts.json` are in plain text.
 - Creating an account, and logging in with a created one, needs `localhost` or HTTPS, because browsers only allow the hashing API (`crypto.subtle`) there. The accounts in `src/accounts.json` also work over plain HTTP on a local network address.
 

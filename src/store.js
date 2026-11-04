@@ -94,49 +94,46 @@ function subscribe(listener) {
 
 export const useBatteries = () => useSyncExternalStore(subscribe, () => state)
 
-// ponytail: each account's lists stay in this browser with the account itself, so they do not follow it to another device
-const listKey = (email, kind) => `battery-passport-${kind}:${email}`
-const listCache = new Map()
-const listListeners = new Set()
+// ponytail: each account's scans stay in this browser with the account itself, so they do not follow it to another device
+const scansKey = (email) => `battery-passport-scans:${email}`
+const scanCache = new Map()
+const scanListeners = new Set()
 
-export function readAccountList(email, kind) {
-  const key = listKey(email, kind)
-  if (!listCache.has(key)) {
+export function readScans(email) {
+  if (!scanCache.has(email)) {
     let saved = []
     try {
-      saved = JSON.parse(localStorage.getItem(key)) ?? []
+      saved = JSON.parse(localStorage.getItem(scansKey(email))) ?? []
     } catch {
       // Storage blocked: the list lasts until the page reloads.
     }
-    listCache.set(key, saved)
+    scanCache.set(email, saved)
   }
-  return listCache.get(key)
+  return scanCache.get(email)
 }
 
-export function addToAccountList(email, kind, id) {
-  const next = [id, ...readAccountList(email, kind).filter((saved) => saved !== id)]
-  const key = listKey(email, kind)
-  listCache.set(key, next)
+export function addScan(email, id) {
+  const next = [id, ...readScans(email).filter((scanned) => scanned !== id)]
+  scanCache.set(email, next)
   try {
-    localStorage.setItem(key, JSON.stringify(next))
+    localStorage.setItem(scansKey(email), JSON.stringify(next))
   } catch {
     // Storage blocked: the list lasts until the page reloads.
   }
-  listListeners.forEach((listener) => listener())
+  scanListeners.forEach((listener) => listener())
 }
 
-function subscribeLists(listener) {
+function subscribeScans(listener) {
   const onStorage = () => {
-    listCache.clear()
+    scanCache.clear()
     listener()
   }
-  listListeners.add(listener)
+  scanListeners.add(listener)
   window.addEventListener('storage', onStorage)
   return () => {
-    listListeners.delete(listener)
+    scanListeners.delete(listener)
     window.removeEventListener('storage', onStorage)
   }
 }
 
-export const useAccountList = (email, kind) =>
-  useSyncExternalStore(subscribeLists, () => readAccountList(email, kind))
+export const useScans = (email) => useSyncExternalStore(subscribeScans, () => readScans(email))

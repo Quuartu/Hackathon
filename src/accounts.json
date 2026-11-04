@@ -15,18 +15,18 @@
     "password": "demo1234"
   },
   {
-    "email": "owner1@demo.example",
-    "role": "owner",
+    "email": "customer1@demo.example",
+    "role": "customer",
     "password": "demo1234"
   },
   {
-    "email": "owner2@demo.example",
-    "role": "owner",
+    "email": "customer2@demo.example",
+    "role": "customer",
     "password": "demo1234"
   },
   {
-    "email": "owner3@demo.example",
-    "role": "owner",
+    "email": "customer3@demo.example",
+    "role": "customer",
     "password": "demo1234"
   },
   {

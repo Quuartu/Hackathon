@@ -7,11 +7,11 @@ To run the app and replay the demo, see the [README](README.md).
 
 ## Current status
 
-The app reads and writes the team's shared Neo4j database through a small API, and four roles are in place: Battery Manufacturer, Garage, Passport Owner and Sorting Centre. The automated checks never wrote real data to the shared database (see Checks).
+The app reads and writes the team's shared Neo4j database through a small API, and four roles are in place: Battery Manufacturer, Garage, Customer and Sorting Centre. The automated checks never wrote real data to the shared database (see Checks).
 
 | Deliverable | Status |
 |---|---|
-| Use cases for the three roles, plus Battery Manufacturer | Done |
+| Use cases of the brief's three roles, with Battery Manufacturer covering the Passport Owner | Done |
 | README to replay the demo and start from zero in VS Code | Done |
 | Neo4j | Connected; full flow on real data still to be confirmed with the group |
 | At least 1 of the 6 Défis | Not chosen |
@@ -31,6 +31,7 @@ In order, on 4 November 2026:
 6. **VS Code guide:** the README explains how to start from zero on Mac and Windows, and how to fix common errors.
 7. **Create battery:** Battery Manufacturer has a form that runs query N and shows the new battery's QR code. It suggests the next free IDs, which replaces the `BP-FR-` generator and "Suggest another". Modules now always appear in order.
 8. **Company on manufacturer accounts:** sign-up asks for a company from a list of the companies in Neo4j, and the account is saved locally. The company decides which models and economic operators the form offers. Batteries get no new field, and accounts add nothing to Neo4j.
+9. **New roles:** Passport Owner became a read-only Customer. Battery Manufacturer now also receives garage requests, approves Waste and lists all its company's batteries with details and QR codes. Sorting Centre, like Garage and Customer, only sees the batteries it has scanned.
 
 ## What has been done
 
@@ -43,10 +44,10 @@ In order, on 4 November 2026:
 
 | Role | Device | Features |
 |---|---|---|
-| Battery Manufacturer | Desktop | Creates a battery in Neo4j and shows its QR code; shows the QR code of a battery it created, or of another battery of its company |
-| Garage | Tablet | QR scan (camera or photo) or typed ID, checked against the database, which adds the battery to the account's own list; identification, status, key parameters and history; sends the diagnosis to the Passport Owner |
-| Passport Owner | Desktop | Request notifications; Original → Waste status change; table of all batteries with details |
-| Sorting Centre | Mobile | QR scan (camera or photo), label or typed ID; "Passport up to date" confirmation if the status is Waste, otherwise a warning; composition and history |
+| Battery Manufacturer | Desktop | Creates batteries in Neo4j; garage request notifications; Original → Waste status change; table of its company's batteries, with details and QR codes |
+| Garage | Tablet | QR scan (camera or photo) or typed ID, checked against the database, which adds the battery to the account's own list; identification, status, key parameters and history; sends the diagnosis to the manufacturer |
+| Customer | Mobile | QR scan (camera or photo) or typed ID, with its own list; read-only status, key parameters and history |
+| Sorting Centre | Mobile | QR scan (camera or photo) or typed ID, with its own list; "Passport up to date" confirmation if the status is Waste, otherwise a warning; composition and history |
 
 The first screen is login or account creation. Sign-up asks for an email, a password and a role, plus a company for a Battery Manufacturer. After login, each account goes straight to its role and cannot open the others. The 12 test accounts (3 per role) are in `src/accounts.json` and listed in the README.
 
@@ -62,7 +63,7 @@ For team testing, a "Demo mode" button at the top right opens a screen where you
 - History is built from dates already on the battery, not from separate nodes.
 - Accounts stay local and nothing about them is stored in Neo4j. Manufacturer sign-up requires a company chosen from a list of the companies in the database, saved with the local account.
 - Battery creation uses query N unchanged. The account's company only decides which models and economic operators the form offers, and the operator is stored through `BUILD` as before.
-- Each account's lists of scanned and created batteries are saved in the browser.
+- Each account's list of scanned batteries is saved in the browser.
 
 ### Main files
 
@@ -87,6 +88,7 @@ For team testing, a "Demo mode" button at the top right opens a screen where you
 | API between React and Neo4j, using Node's built-in `http` module and `neo4j-driver` | Database credentials must not reach the browser; a few routes do not need a framework | Two processes to start: `npm run server` and `npm run dev` |
 | No fictional data as a fallback | Mock data could hide a broken connection during the demo | If the API or Aura is down, the app shows an error instead of data |
 | QR reading with `jsqr`, plus a photo option | The browsers' built-in barcode detector is missing on Chrome for Windows; the photo option also works where the live camera is blocked | The live camera needs `localhost` or HTTPS |
+| Battery Manufacturer covers the brief's Passport Owner, and Passport Owner becomes a Customer | Team choice: whoever puts a battery on the market is responsible for its passport, and the customer only consults it | The slides must explain this, because the brief names a Passport Owner role |
 | Accounts and their lists stay local, not in Neo4j | Team choice: the shared database keeps the team's model, with no new fields or nodes for accounts | Lists and created accounts do not follow a user to another browser, computer or port |
 | Next free IDs replace the `BP-FR-` generator | The generator made QR codes for batteries that were not in the database, in a different format | QR codes only exist for batteries in the database |
 | English interface | Team choice | No French translation |
@@ -108,8 +110,10 @@ Neo4j connection, run on 4 November 2026:
 - The text of the create query in `server/passport.js` is identical to query N.
 - Invalid requests were refused: wrong content type (415), empty diagnosis, malformed JSON, invalid new battery fields and an unknown model (400), unknown route (404). A battery ID already in use returned 409 from the real database, without creating anything.
 - Flows in headless Chrome. Reads came from Neo4j; **POST requests for new data were simulated in the browser and never reached the API**:
-  - the Garage request reaches the Passport Owner without a page reload;
+  - the Garage request reaches the Battery Manufacturer without a page reload, and the Manufacturer only sees its own company's requests and batteries;
+  - Customer is read-only, and shows the change to Waste;
   - the Sorting Centre goes from "not up to date" to "up to date";
+  - Garage, Customer and Sorting Centre only list and open the batteries they have scanned;
   - Manufacturer sign-up requires a company, saves it locally and sends nothing about the account to the API;
   - a new battery sends only the fields of query N, and its QR code opens it for a Garage;
   - lists stay separate per account and survive reloads, and logging out and in; a direct URL is blocked for another garage;
@@ -136,15 +140,16 @@ Not tested on a real tablet or phone.
 
 ## Known limitations
 
-- Each account's lists are saved in the browser at that address, so they do not follow it to another browser, computer or port. They only limit what the screens show: the API still returns every battery.
+- Each account's list of scanned batteries is saved in the browser at that address, so it does not follow the account to another browser, computer or port. Lists and company filters only limit what the screens show: the API still returns every battery.
+- A battery joins a customer's list as soon as they scan it, so two customers can list the same battery.
 - An account created with sign-up only logs in from the browser where it was created.
 - The database has no extinguishing agent ("Not recorded" on screen).
 - Queries I and I2 only reset `BAT-0001`; other test batteries are deleted with query P.
-- Garage and Passport Owner show the diagnosis, module levels and alerts from Neo4j. The module reading history (query F) is not charted yet.
+- Garage and Battery Manufacturer show the diagnosis, module levels and alerts from Neo4j. The module reading history (query F) is not charted yet.
 - The API has no login check, because logins still live in the browser. It only accepts connections from the same computer, so it cannot be hosted online as it is.
 - The transfer to the sorting centre is only a line in the history: there is no order, carrier or document (that is Défi #2).
 - The Garage report is free text. Readings and alerts come from the team's simulator, and new batteries show "No reading" until it updates them.
-- The Passport Owner cannot reject a request, because the brief does not include it.
+- The Battery Manufacturer cannot reject a request, because the brief does not include it.
 
 ## Next steps
 

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'reac
 import jsQR from 'jsqr'
 import qrcode from 'qrcode-generator'
 import { demoLogIn, logIn, logOut, ROLES, signUp, useSession } from './auth.js'
-import { addToAccountList, approveWaste, createBattery, findBattery, nextBatteryIds, reportOutOfService, useAccountList, useBatteries } from './store.js'
+import { addScan, approveWaste, createBattery, findBattery, nextBatteryIds, reportOutOfService, useBatteries, useScans } from './store.js'
 
 // The database stores some dates as year and month only, like 2033-06.
 const isMonth = (iso) => iso.length === 7
@@ -38,6 +38,8 @@ function readQr(source, width, height) {
   return jsQR(data, canvas.width, canvas.height)?.data
 }
 
+const SCANNING_ROLES = ['garage', 'customer', 'sorting']
+
 function useRoute() {
   const hash = useSyncExternalStore(
     (listener) => {
@@ -58,9 +60,10 @@ export default function App() {
   const role = session?.role
   const wrongRoute = session && route.role !== role
   const batteryId = wrongRoute ? undefined : route.batteryId
-  const scans = useAccountList(session?.email, 'scans')
-  // A garage only opens batteries it has scanned, even from a direct URL.
-  const canOpen = role !== 'garage' || scans.includes(batteryId)
+  const scans = useScans(session?.email)
+  const scanning = SCANNING_ROLES.includes(role)
+  // These roles only open batteries they have scanned, even from a direct URL.
+  const canOpen = !scanning || scans.includes(batteryId)
   const battery = canOpen ? batteries?.find((b) => b.batteryId === batteryId) : undefined
 
   // Each account only reaches its own role, whatever the URL says.
@@ -92,23 +95,26 @@ export default function App() {
           <DemoMode onPick={() => setDemoOpen(false)} />
         </main>
       ) : (
-        <main className={role === 'owner' ? 'page page-wide' : 'page'}>
+        <main className={role === 'manufacturer' ? 'page page-wide' : 'page'}>
           {!session && <Auth />}
           {session && error && <Banner tone="danger" title="Data problem">{error}</Banner>}
           {session && !batteries && !error && <p className="muted" role="status">Loading passports…</p>}
           {session && batteries && (
             <>
               {role === 'manufacturer' && (
-                <Manufacturer batteries={batteries} companies={companies} session={session} />
+                <Manufacturer
+                  batteries={batteries}
+                  companies={companies}
+                  session={session}
+                  selected={battery}
+                />
               )}
-              {role === 'owner' && <Owner batteries={batteries} selected={battery} />}
-              {(role === 'garage' || role === 'sorting') && !batteryId && (
+              {scanning && !batteryId && (
                 <Scan role={role} batteries={batteries} scans={scans} email={session.email} />
               )}
-              {(role === 'garage' || role === 'sorting') && batteryId && !battery && (
-                <NotFound role={role} />
-              )}
+              {scanning && batteryId && !battery && <NotFound role={role} />}
               {role === 'garage' && battery && <Garage battery={battery} />}
+              {role === 'customer' && battery && <Customer battery={battery} />}
               {role === 'sorting' && battery && <Sorting battery={battery} />}
             </>
           )}
@@ -261,16 +267,27 @@ const BATTERY_FIELDS = [
   ['warranty', 'Warranty until', 'month'],
 ]
 
-function Manufacturer({ batteries, companies, session }) {
+function BatteryQr({ battery }) {
+  const passportId = battery.batteryPassportId
+  const url = useMemo(() => qrDataUrl(passportId), [passportId])
+  return (
+    <section className="card qr">
+      <img src={url} alt={`QR code for passport ${passportId}`} />
+      <strong>{passportId}</strong>
+      <span className="muted">{battery.batteryId} · {battery.model.name}</span>
+    </section>
+  )
+}
+
+function Manufacturer({ batteries, companies, session, selected }) {
+  const { saving } = useBatteries()
   // Demo mode has no company, so it uses the first one.
   const company = companies.find(({ name }) => name === session.company) ?? companies[0]
   const models = company?.models ?? []
   const operators = company?.operators ?? []
-  const createdIds = useAccountList(session.email, 'created')
-  const mine = batteries.filter((b) => createdIds.includes(b.batteryId))
-  const companyOthers = batteries.filter(
-    (b) => operators.includes(b.operator.name) && !createdIds.includes(b.batteryId),
-  )
+  const companyBatteries = batteries.filter((b) => operators.includes(b.operator.name))
+  const requests = companyBatteries.filter((b) => b.request)
+  const shown = companyBatteries.includes(selected) ? selected : undefined
   // Only what the user changed is kept, so the suggested IDs follow the database until then.
   const [edits, setEdits] = useState({})
   const fields = {
@@ -283,14 +300,6 @@ function Manufacturer({ batteries, companies, session }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [created, setCreated] = useState('')
-  const [qrCode, setQrCode] = useState('')
-  const qrUrl = useMemo(() => (qrCode ? qrDataUrl(qrCode) : null), [qrCode])
-  const qrBattery = batteries.find((b) => b.batteryPassportId === qrCode)
-  const batteryOption = (b) => (
-    <option value={b.batteryPassportId} key={b.batteryId}>
-      {b.batteryPassportId} ({b.batteryId})
-    </option>
-  )
 
   const edit = (name) => (event) => setEdits({ ...edits, [name]: event.target.value })
 
@@ -300,11 +309,10 @@ function Manufacturer({ batteries, companies, session }) {
     setError('')
     setCreated('')
     try {
-      const { batteryId, passportId } = await createBattery(fields)
-      addToAccountList(session.email, 'created', batteryId)
+      const { batteryId } = await createBattery(fields)
       setCreated(batteryId)
-      setQrCode(passportId)
       setEdits({})
+      window.location.hash = `#/manufacturer/${batteryId}`
     } catch (failure) {
       setError(failure.message)
     }
@@ -313,56 +321,97 @@ function Manufacturer({ batteries, companies, session }) {
 
   return (
     <>
-      <h1>Create battery</h1>
-      <form className="card form" onSubmit={submit}>
-        {!company && <p className="error" role="alert">No company found in the database.</p>}
-        <label htmlFor="modelId">Model</label>
-        <select id="modelId" value={fields.modelId} onChange={edit('modelId')} required>
-          {models.map((model) => <option key={model}>{model}</option>)}
-        </select>
-        <label htmlFor="operatorName">Economic operator</label>
-        <select id="operatorName" value={fields.operatorName} onChange={edit('operatorName')} required>
-          {operators.map((operator) => <option key={operator}>{operator}</option>)}
-        </select>
-        {BATTERY_FIELDS.map(([name, label, type]) => (
-          <div className="form" key={name}>
-            <label htmlFor={name}>{label}</label>
-            <input id={name} type={type} value={fields[name]} onChange={edit(name)} required />
+      <h1>Passport management</h1>
+      {company
+        ? <p className="muted">{company.name}</p>
+        : <p className="error" role="alert">No company found in the database.</p>}
+      <section className="card" aria-labelledby="notifications">
+        <h2 id="notifications">Notifications ({requests.length})</h2>
+        {requests.length === 0 && <p className="muted">No pending requests.</p>}
+        {requests.map((b) => (
+          <div className="request" key={b.batteryId}>
+            <div>
+              <strong>Garage requests Original → Waste for {b.batteryId}</strong>
+              <p>{b.request.reason}</p>
+              <p className="muted">{formatDateTime(b.request.at)}</p>
+            </div>
+            <button
+              className="button-danger"
+              disabled={saving}
+              onClick={() => approveWaste(b.batteryId, b.request.id)}
+            >
+              Change status to Waste
+            </button>
           </div>
         ))}
-        <p className="muted">This saves the battery to the database shared by the whole team.</p>
-        {error && <p className="error" role="alert">{error}</p>}
-        <button disabled={busy || !company}>Create battery</button>
-      </form>
-      {created && (
-        <Banner tone="success" title="Battery created">
-          {created} is now in the database. Its QR code is below.
-        </Banner>
-      )}
-      {qrUrl && (
-        <section className="card qr">
-          <img src={qrUrl} alt={`QR code for passport ${qrCode}`} />
-          <strong>{qrCode}</strong>
-          {qrBattery && <span className="muted">{qrBattery.batteryId} · {qrBattery.model.name}</span>}
-        </section>
-      )}
-      <section className="card form">
-        <label htmlFor="existing">Show the QR code of an existing battery</label>
-        <select
-          id="existing"
-          value={qrBattery ? qrCode : ''}
-          onChange={(event) => {
-            setCreated('')
-            setQrCode(event.target.value)
-          }}
-        >
-          <option value="">Choose a battery</option>
-          {mine.length > 0 && <optgroup label="Created by you">{mine.map(batteryOption)}</optgroup>}
-          {companyOthers.length > 0 && (
-            <optgroup label={`Other ${company.name} batteries`}>{companyOthers.map(batteryOption)}</optgroup>
-          )}
-        </select>
       </section>
+      <details className="card">
+        <summary>Create new battery</summary>
+        <form className="form create-form" onSubmit={submit}>
+          <label htmlFor="modelId">Model</label>
+          <select id="modelId" value={fields.modelId} onChange={edit('modelId')} required>
+            {models.map((model) => <option key={model}>{model}</option>)}
+          </select>
+          <label htmlFor="operatorName">Economic operator</label>
+          <select id="operatorName" value={fields.operatorName} onChange={edit('operatorName')} required>
+            {operators.map((operator) => <option key={operator}>{operator}</option>)}
+          </select>
+          {BATTERY_FIELDS.map(([name, label, type]) => (
+            <div className="form" key={name}>
+              <label htmlFor={name}>{label}</label>
+              <input id={name} type={type} value={fields[name]} onChange={edit(name)} required />
+            </div>
+          ))}
+          <p className="muted">This saves the battery to the database shared by the whole team.</p>
+          {error && <p className="error" role="alert">{error}</p>}
+          <button disabled={busy || !company}>Create battery</button>
+        </form>
+      </details>
+      <section className="card">
+        <h2>Your company's batteries ({companyBatteries.length})</h2>
+        <div className="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Battery</th>
+                <th>Passport</th>
+                <th>Model</th>
+                <th>SOH</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {companyBatteries.map((b) => (
+                <tr key={b.batteryId} className={b === shown ? 'row-selected' : undefined}>
+                  <td><a href={`#/manufacturer/${b.batteryId}`}>{b.batteryId}</a></td>
+                  <td>{b.batteryPassportId}</td>
+                  <td>{b.model.name}</td>
+                  <td>{b.performance.soh}%</td>
+                  <td><StatusBadge status={b.status} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+      {shown && (
+        <>
+          <h2 className="section-title">{shown.batteryId}</h2>
+          {created === shown.batteryId && (
+            <Banner tone="success" title="Battery created">
+              {created} is now in the database. Its QR code is below.
+            </Banner>
+          )}
+          <div className="details-grid">
+            <BatteryQr battery={shown} />
+            <Identification battery={shown} />
+            <KeyParameters battery={shown} />
+            <Composition battery={shown} />
+          </div>
+          <Modules battery={shown} />
+          <History battery={shown} />
+        </>
+      )}
     </>
   )
 }
@@ -453,15 +502,12 @@ function QrScanner({ onCode }) {
 function Scan({ role, batteries, scans, email }) {
   const [code, setCode] = useState('')
   const [notFound, setNotFound] = useState(false)
-  const isGarage = role === 'garage'
-  const listed = isGarage
-    ? scans.flatMap((id) => batteries.filter((b) => b.batteryId === id))
-    : batteries
+  const listed = scans.flatMap((id) => batteries.filter((b) => b.batteryId === id))
 
   function openBattery(value) {
     const battery = findBattery(batteries, value)
     if (!battery) return setNotFound(true)
-    if (isGarage) addToAccountList(email, 'scans', battery.batteryId)
+    addScan(email, battery.batteryId)
     window.location.hash = `#/${role}/${battery.batteryId}`
     return undefined
   }
@@ -476,23 +522,10 @@ function Scan({ role, batteries, scans, email }) {
     openBattery(value)
   }
 
-  const labels = (
-    <div className="label-grid">
-      {listed.map((b) => (
-        <a className="card label" href={`#/${role}/${b.batteryId}`} key={b.batteryId}>
-          <strong>{b.batteryId}</strong>
-          <span className="muted">{b.model.name}</span>
-          {isGarage && <span><StatusBadge status={b.status} /></span>}
-        </a>
-      ))}
-    </div>
-  )
-
   return (
     <>
       <h1>Scan battery QR code</h1>
       <QrScanner onCode={handleQrCode} />
-      {!isGarage && labels}
       <form className="card form" onSubmit={submit}>
         <label htmlFor="code">Battery or passport ID</label>
         <div className="form-row">
@@ -510,12 +543,17 @@ function Scan({ role, batteries, scans, email }) {
         </div>
         {notFound && <p className="error" role="alert">No battery found with this ID.</p>}
       </form>
-      {isGarage && (
-        <>
-          <h2 className="section-title">Your batteries ({listed.length})</h2>
-          {listed.length === 0 ? <p className="muted">No batteries scanned yet.</p> : labels}
-        </>
-      )}
+      <h2 className="section-title">Your batteries ({listed.length})</h2>
+      {listed.length === 0 && <p className="muted">No batteries scanned yet.</p>}
+      <div className="label-grid">
+        {listed.map((b) => (
+          <a className="card label" href={`#/${role}/${b.batteryId}`} key={b.batteryId}>
+            <strong>{b.batteryId}</strong>
+            <span className="muted">{b.model.name}</span>
+            <span><StatusBadge status={b.status} /></span>
+          </a>
+        ))}
+      </div>
     </>
   )
 }
@@ -547,7 +585,7 @@ function Garage({ battery }) {
         </Banner>
       )}
       {battery.request && (
-        <Banner tone="info" title="Request sent to the Passport Owner">
+        <Banner tone="info" title="Request sent to the manufacturer">
           Waiting for the status change from Original to Waste.
         </Banner>
       )}
@@ -565,7 +603,7 @@ function Garage({ battery }) {
             required
           />
           <button className="button-danger" disabled={saving || !reason.trim()}>
-            Notify Passport Owner
+            Notify manufacturer
           </button>
         </form>
       )}
@@ -579,72 +617,25 @@ function Garage({ battery }) {
   )
 }
 
-function Owner({ batteries, selected }) {
-  const { saving } = useBatteries()
-  const requests = batteries.filter((b) => b.request)
-
+function Customer({ battery }) {
   return (
     <>
-      <h1>Battery passports</h1>
-      <section className="card" aria-labelledby="notifications">
-        <h2 id="notifications">Notifications ({requests.length})</h2>
-        {requests.length === 0 && <p className="muted">No pending requests.</p>}
-        {requests.map((b) => (
-          <div className="request" key={b.batteryId}>
-            <div>
-              <strong>Garage requests Original → Waste for {b.batteryId}</strong>
-              <p>{b.request.reason}</p>
-              <p className="muted">{formatDateTime(b.request.at)}</p>
-            </div>
-            <button
-              className="button-danger"
-              disabled={saving}
-              onClick={() => approveWaste(b.batteryId, b.request.id)}
-            >
-              Change status to Waste
-            </button>
-          </div>
-        ))}
-      </section>
-      <section className="card">
-        <h2>All batteries</h2>
-        <div className="table-scroll">
-          <table>
-            <thead>
-              <tr>
-                <th>Battery</th>
-                <th>Passport</th>
-                <th>Model</th>
-                <th>SOH</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {batteries.map((b) => (
-                <tr key={b.batteryId} className={b === selected ? 'row-selected' : undefined}>
-                  <td><a href={`#/owner/${b.batteryId}`}>{b.batteryId}</a></td>
-                  <td>{b.batteryPassportId}</td>
-                  <td>{b.model.name}</td>
-                  <td>{b.performance.soh}%</td>
-                  <td><StatusBadge status={b.status} /></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
-      {selected && (
-        <>
-          <h2 className="section-title">{selected.batteryId}</h2>
-          <div className="details-grid">
-            <Identification battery={selected} />
-            <KeyParameters battery={selected} />
-            <Composition battery={selected} />
-          </div>
-          <Modules battery={selected} />
-          <History battery={selected} />
-        </>
+      <BatteryTitle battery={battery} backTo="#/customer" />
+      {battery.status === 'Waste' && (
+        <Banner tone="danger" title="Out of service">
+          This battery has been taken out of service and is going to the sorting centre.
+        </Banner>
       )}
+      {battery.request && (
+        <Banner tone="info" title="Under review">
+          A garage has reported a defect, and the manufacturer is reviewing it.
+        </Banner>
+      )}
+      <div className="details-grid">
+        <Identification battery={battery} />
+        <KeyParameters battery={battery} />
+      </div>
+      <History battery={battery} />
     </>
   )
 }
@@ -659,7 +650,7 @@ function Sorting({ battery }) {
         </Banner>
       ) : (
         <Banner tone="warning" title="Passport not up to date">
-          Status is {battery.status}, expected Waste. Contact the Passport Owner.
+          Status is {battery.status}, expected Waste. Contact the manufacturer.
         </Banner>
       )}
       <div className="details-grid">

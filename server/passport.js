@@ -109,8 +109,8 @@ export function toBattery({ b, type, mo, op, sp, sd, cf, co, an, ca, el, dp, dd,
   ]
   if (b.statusChangedAt) {
     history.push(
-      { at: b.statusChangedAt, actor: 'Passport Owner', text: `Status changed: Original → ${b.status}` },
-      { at: b.statusChangedAt, actor: 'Passport Owner', text: 'Transfer to sorting centre organised' },
+      { at: b.statusChangedAt, actor: 'Manufacturer', text: `Status changed: Original → ${b.status}` },
+      { at: b.statusChangedAt, actor: 'Manufacturer', text: 'Transfer to sorting centre organised' },
     )
   }
 

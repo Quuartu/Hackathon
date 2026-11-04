@@ -17,10 +17,10 @@ test('every account in the file has a valid role and logs in with its own passwo
 })
 
 test('an account added by hand with capitals in its email still logs in and blocks duplicates', async () => {
-  const added = { email: 'Mario@Test.example', role: 'owner', password: 'demo1234' }
-  assert.equal((await verifyLogin([added], 'mario@test.example', 'demo1234'))?.role, 'owner')
+  const added = { email: 'Mario@Test.example', role: 'customer', password: 'demo1234' }
+  assert.equal((await verifyLogin([added], 'mario@test.example', 'demo1234'))?.role, 'customer')
   await assert.rejects(
-    createAccount([added], { email: 'mario@test.example', password: 'long-enough-1', role: 'owner' }),
+    createAccount([added], { email: 'mario@test.example', password: 'long-enough-1', role: 'customer' }),
     /already exists/,
   )
 })
