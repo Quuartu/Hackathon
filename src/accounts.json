@@ -1,0 +1,47 @@
+[
+  {
+    "email": "garage1@demo.example",
+    "role": "garage",
+    "password": "demo1234"
+  },
+  {
+    "email": "garage2@demo.example",
+    "role": "garage",
+    "password": "demo1234"
+  },
+  {
+    "email": "garage3@demo.example",
+    "role": "garage",
+    "password": "demo1234"
+  },
+  {
+    "email": "owner1@demo.example",
+    "role": "owner",
+    "password": "demo1234"
+  },
+  {
+    "email": "owner2@demo.example",
+    "role": "owner",
+    "password": "demo1234"
+  },
+  {
+    "email": "owner3@demo.example",
+    "role": "owner",
+    "password": "demo1234"
+  },
+  {
+    "email": "sorting1@demo.example",
+    "role": "sorting",
+    "password": "demo1234"
+  },
+  {
+    "email": "sorting2@demo.example",
+    "role": "sorting",
+    "password": "demo1234"
+  },
+  {
+    "email": "sorting3@demo.example",
+    "role": "sorting",
+    "password": "demo1234"
+  }
+]

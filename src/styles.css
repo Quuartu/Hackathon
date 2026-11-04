@@ -68,9 +68,30 @@ p {
   text-decoration: none;
 }
 
+.topbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  margin-left: auto;
+}
+
 .topbar-role {
   color: var(--muted);
   font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+
+/* Keep the demo button beside the brand, with the account line below them. */
+@media (max-width: 600px) {
+  .topbar-actions {
+    display: contents;
+  }
+
+  .topbar-role {
+    order: 1;
+    width: 100%;
+  }
 }
 
 .page {
@@ -93,7 +114,6 @@ p {
   border-radius: 8px;
 }
 
-.role-grid,
 .label-grid,
 .details-grid {
   display: grid;
@@ -101,7 +121,6 @@ p {
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
 }
 
-.role-card,
 .label {
   display: grid;
   align-content: start;
@@ -110,19 +129,63 @@ p {
   text-decoration: none;
 }
 
-.role-card:hover,
 .label:hover {
   border-color: var(--primary);
 }
 
-.role-card strong {
-  font-size: 1.15rem;
+.auth {
+  display: grid;
+  gap: 16px;
+  width: 100%;
+  max-width: 440px;
+  margin: 0 auto;
 }
 
-.eyebrow {
-  color: var(--primary);
-  font-size: 0.8rem;
+.auth h1 {
+  margin: 0;
+}
+
+fieldset {
+  display: grid;
+  gap: 8px;
+  margin: 8px 0;
+  padding: 0;
+  border: 0;
+}
+
+legend {
+  margin-bottom: 8px;
+  padding: 0;
+  font-size: 0.9rem;
   font-weight: 600;
+}
+
+.radio {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-weight: 400;
+  cursor: pointer;
+}
+
+.radio:has(input:checked) {
+  border-color: var(--primary);
+  background: var(--info-bg);
+}
+
+.radio input {
+  width: 18px;
+  min-height: 18px;
+  height: 18px;
+  flex: none;
+  margin: 3px 0 0;
+}
+
+.radio span {
+  display: grid;
 }
 
 button {
@@ -151,6 +214,21 @@ button:disabled {
   background: transparent;
   border: 1px solid var(--border);
   color: var(--text);
+}
+
+.button-small {
+  min-height: 32px;
+  padding: 4px 10px;
+  font-size: 0.85rem;
+}
+
+.button-link {
+  min-height: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--primary);
+  font-weight: 400;
+  text-decoration: underline;
 }
 
 .form {

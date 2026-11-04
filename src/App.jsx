@@ -1,11 +1,6 @@
-import { useState, useSyncExternalStore } from 'react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
+import { demoLogIn, logIn, logOut, ROLES, signUp, useSession } from './auth.js'
 import { approveWaste, findBattery, reportOutOfService, resetDemo, update, useBatteries } from './store.js'
-
-const ROLES = {
-  garage: { label: 'Garage', device: 'Tablet', text: 'Scan a battery, review it and report it out of service.' },
-  owner: { label: 'Passport Owner', device: 'Desktop', text: 'Handle garage requests and update passport status.' },
-  sorting: { label: 'Sorting Centre', device: 'Mobile', text: 'Scan a received battery and check its status.' },
-}
 
 const formatDate = (iso) => new Date(iso).toLocaleDateString('en-GB', { dateStyle: 'medium' })
 const formatDateTime = (iso) =>
@@ -24,52 +19,167 @@ function useRoute() {
 }
 
 export default function App() {
-  const { role, batteryId } = useRoute()
+  const session = useSession()
+  const route = useRoute()
   const batteries = useBatteries()
+  const [demoOpen, setDemoOpen] = useState(false)
+  const role = session?.role
+  const wrongRoute = session && route.role !== role
+  const batteryId = wrongRoute ? undefined : route.batteryId
   const battery = batteries.find((b) => b.batteryId === batteryId)
+
+  // Each account only reaches its own role, whatever the URL says.
+  useEffect(() => {
+    if (wrongRoute) window.location.replace(`#/${role}`)
+  }, [wrongRoute, role])
 
   return (
     <>
       <header className="topbar">
         <a className="brand" href="#/">Battery Passport</a>
-        {role && (
-          <span className="topbar-role">
-            {ROLES[role].label} · <a href="#/">Switch role</a>
-          </span>
-        )}
+        <div className="topbar-actions">
+          {session && (
+            <span className="topbar-role">
+              {session.email} · {ROLES[role].label} ·{' '}
+              <button className="button-link" onClick={logOut}>Log out</button>
+            </span>
+          )}
+          {/* Team testing tool: only in `npm run dev`, left out of production builds. */}
+          {import.meta.env.DEV && (
+            <button className="button-ghost button-small" onClick={() => setDemoOpen(!demoOpen)}>
+              {demoOpen ? 'Close demo mode' : 'Demo mode'}
+            </button>
+          )}
+        </div>
       </header>
-      <main className={role === 'owner' ? 'page page-wide' : 'page'}>
-        {!role && <Home />}
-        {role === 'owner' && <Owner batteries={batteries} selected={battery} />}
-        {(role === 'garage' || role === 'sorting') && !batteryId && (
-          <Scan role={role} batteries={batteries} />
-        )}
-        {(role === 'garage' || role === 'sorting') && batteryId && !battery && (
-          <NotFound role={role} />
-        )}
-        {role === 'garage' && battery && <Garage battery={battery} />}
-        {role === 'sorting' && battery && <Sorting battery={battery} />}
-      </main>
+      {import.meta.env.DEV && demoOpen ? (
+        <main className="page">
+          <DemoMode onPick={() => setDemoOpen(false)} />
+        </main>
+      ) : (
+        <main className={role === 'owner' ? 'page page-wide' : 'page'}>
+          {!session && <Auth />}
+          {role === 'owner' && <Owner batteries={batteries} selected={battery} />}
+          {(role === 'garage' || role === 'sorting') && !batteryId && (
+            <Scan role={role} batteries={batteries} />
+          )}
+          {(role === 'garage' || role === 'sorting') && batteryId && !battery && (
+            <NotFound role={role} />
+          )}
+          {role === 'garage' && battery && <Garage battery={battery} />}
+          {role === 'sorting' && battery && <Sorting battery={battery} />}
+        </main>
+      )}
     </>
   )
 }
 
-function Home() {
+function DemoMode({ onPick }) {
   return (
-    <>
-      <h1>Choose your role</h1>
-      <p className="muted">Open each role in its own browser tab: updates appear in the others instantly.</p>
-      <div className="role-grid">
-        {Object.entries(ROLES).map(([key, role]) => (
-          <a className="card role-card" href={`#/${key}`} key={key}>
-            <span className="eyebrow">{role.device}</span>
-            <strong>{role.label}</strong>
-            <span className="muted">{role.text}</span>
-          </a>
-        ))}
-      </div>
+    <div className="auth">
+      <h1>Demo mode</h1>
+      <p className="muted">For testing: choose a role to enter without logging in.</p>
+      {Object.entries(ROLES).map(([key, option]) => (
+        <a
+          className="card label"
+          href={`#/${key}`}
+          key={key}
+          onClick={() => {
+            demoLogIn(key)
+            onPick()
+          }}
+        >
+          <strong>{option.label}</strong>
+          <span className="muted">{option.text}</span>
+        </a>
+      ))}
+    </div>
+  )
+}
+
+function Auth() {
+  const [isSignUp, setIsSignUp] = useState(false)
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [role, setRole] = useState('')
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  async function submit(event) {
+    event.preventDefault()
+    setError('')
+    setBusy(true)
+    try {
+      if (isSignUp) await signUp({ email, password, role })
+      else await logIn(email, password)
+    } catch (failure) {
+      setError(failure.message)
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="auth">
+      <h1>{isSignUp ? 'Create account' : 'Log in'}</h1>
+      <form className="card form" onSubmit={submit}>
+        <label htmlFor="email">Email</label>
+        <input
+          id="email"
+          type="email"
+          autoComplete="email"
+          value={email}
+          onChange={(event) => setEmail(event.target.value)}
+          required
+        />
+        <label htmlFor="password">Password</label>
+        <input
+          id="password"
+          type="password"
+          autoComplete={isSignUp ? 'new-password' : 'current-password'}
+          minLength={isSignUp ? 8 : undefined}
+          value={password}
+          onChange={(event) => setPassword(event.target.value)}
+          required
+        />
+        {isSignUp && <p className="muted">At least 8 characters.</p>}
+        {isSignUp && (
+          <fieldset>
+            <legend>Account type</legend>
+            {Object.entries(ROLES).map(([key, option]) => (
+              <label className="radio" key={key}>
+                <input
+                  type="radio"
+                  name="role"
+                  value={key}
+                  checked={role === key}
+                  onChange={() => setRole(key)}
+                  required
+                />
+                <span>
+                  <strong>{option.label}</strong>
+                  <span className="muted">{option.text}</span>
+                </span>
+              </label>
+            ))}
+          </fieldset>
+        )}
+        {error && <p className="error" role="alert">{error}</p>}
+        <button disabled={busy}>{isSignUp ? 'Create account' : 'Log in'}</button>
+      </form>
+      <p>
+        {isSignUp ? 'Already have an account? ' : 'New here? '}
+        <button
+          className="button-link"
+          onClick={() => {
+            setIsSignUp(!isSignUp)
+            setError('')
+          }}
+        >
+          {isSignUp ? 'Log in' : 'Create an account'}
+        </button>
+      </p>
       <button className="button-ghost" onClick={resetDemo}>Reset demo data</button>
-    </>
+    </div>
   )
 }
 
