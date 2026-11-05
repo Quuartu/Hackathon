@@ -54,6 +54,10 @@ CREATE (m:Module {moduleId: $batteryId + '-M' + toString(i), index: i, name: 'Mo
 CREATE (b)-[:HAS_MODULE]->(m)
 RETURN b.batteryId AS batteryId, b.batteryPassportId AS passportId, count(m) AS modules`
 
+export const PASSPORT_EXISTS = `
+MATCH (b:BatteryInstance {batteryPassportId: $passportId})
+RETURN b.batteryPassportId AS passportId`
+
 const ID_FORMAT = /^[A-Z0-9-]{1,40}$/
 const MONTH_FORMAT = /^\d{4}-(0[1-9]|1[0-2])$/
 

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'reac
 import jsQR from 'jsqr'
 import qrcode from 'qrcode-generator'
 import { demoLogIn, logIn, logOut, ROLES, signUp, useSession } from './auth.js'
-import { addScan, applyTelemetry, approveWaste, createBattery, findBattery, nextBatteryIds, reportOutOfService, sendTelemetry, useBatteries, useScans } from './store.js'
+import { addScan, applyTelemetry, approveWaste, createBattery, findBattery, nextBatteryIds, refresh, reportOutOfService, sendTelemetry, useBatteries } from './store.js'
 
 // The database stores some dates as year and month only, like 2033-06.
 const isMonth = (iso) => iso.length === 7
@@ -48,23 +48,29 @@ function useRoute() {
     },
     () => window.location.hash,
   )
-  const [role, batteryId] = hash.replace(/^#\/?/, '').split('/')
-  return { role: ROLES[role] ? role : null, batteryId }
+  const [role, passportId] = hash.replace(/^#\/?/, '').split('/')
+  return { role: ROLES[role] ? role : null, passportId }
 }
 
 export default function App() {
   const session = useSession()
   const route = useRoute()
-  const { batteries, companies, error } = useBatteries()
+  const { batteries, companies, scans, error } = useBatteries()
   const [demoOpen, setDemoOpen] = useState(false)
   const role = session?.role
   const wrongRoute = session && route.role !== role
-  const batteryId = wrongRoute ? undefined : route.batteryId
-  const scans = useScans(session?.email)
+  const passportId = wrongRoute ? undefined : route.passportId
   const scanning = SCANNING_ROLES.includes(role)
+  const token = session?.token
+
+  // Loads this account's list straight after login, and clears it after logout.
+  useEffect(() => {
+    refresh()
+  }, [token])
+
   // These roles only open batteries they have scanned, even from a direct URL.
-  const canOpen = !scanning || scans.includes(batteryId)
-  const battery = canOpen ? batteries?.find((b) => b.batteryId === batteryId) : undefined
+  const canOpen = !scanning || scans.includes(passportId)
+  const battery = canOpen ? batteries?.find((b) => b.batteryPassportId === passportId) : undefined
 
   // Each account only reaches its own role, whatever the URL says.
   useEffect(() => {
@@ -109,10 +115,10 @@ export default function App() {
                   selected={battery}
                 />
               )}
-              {scanning && !batteryId && (
-                <Scan role={role} batteries={batteries} scans={scans} email={session.email} />
+              {scanning && !passportId && (
+                <Scan role={role} batteries={batteries} scans={scans} />
               )}
-              {scanning && batteryId && !battery && <NotFound role={role} />}
+              {scanning && passportId && !battery && <NotFound role={role} />}
               {role === 'garage' && battery && <Garage battery={battery} />}
               {role === 'customer' && battery && <Customer battery={battery} />}
               {role === 'sorting' && battery && <Sorting battery={battery} />}
@@ -125,20 +131,27 @@ export default function App() {
 }
 
 function DemoMode({ onPick }) {
+  const [error, setError] = useState('')
+
+  async function pick(event, role) {
+    event.preventDefault()
+    setError('')
+    try {
+      await demoLogIn(role)
+      window.location.hash = `#/${role}`
+      onPick()
+    } catch (failure) {
+      setError(failure.message)
+    }
+  }
+
   return (
     <div className="auth">
       <h1>Demo mode</h1>
-      <p className="muted">For testing: choose a role to enter without logging in.</p>
+      <p className="muted">For testing: choose a role to enter with its first test account.</p>
+      {error && <p className="error" role="alert">{error}</p>}
       {Object.entries(ROLES).map(([key, option]) => (
-        <a
-          className="card label"
-          href={`#/${key}`}
-          key={key}
-          onClick={() => {
-            demoLogIn(key)
-            onPick()
-          }}
-        >
+        <a className="card label" href={`#/${key}`} key={key} onClick={(event) => pick(event, key)}>
           <strong>{option.label}</strong>
           <span className="muted">{option.text}</span>
         </a>
@@ -309,10 +322,10 @@ function Manufacturer({ batteries, companies, session, selected }) {
     setError('')
     setCreated('')
     try {
-      const { batteryId } = await createBattery(fields)
-      setCreated(batteryId)
+      const { passportId } = await createBattery(fields)
+      setCreated(passportId)
       setEdits({})
-      window.location.hash = `#/manufacturer/${batteryId}`
+      window.location.hash = `#/manufacturer/${passportId}`
     } catch (failure) {
       setError(failure.message)
     }
@@ -331,7 +344,7 @@ function Manufacturer({ batteries, companies, session, selected }) {
         {requests.map((b) => (
           <div className="request" key={b.batteryId}>
             <div>
-              <strong>Garage requests Original → Waste for {b.batteryId}</strong>
+              <strong>Garage requests Original → Waste for {b.batteryPassportId}</strong>
               <p>{b.request.reason}</p>
               <p className="muted">{formatDateTime(b.request.at)}</p>
             </div>
@@ -373,8 +386,8 @@ function Manufacturer({ batteries, companies, session, selected }) {
           <table>
             <thead>
               <tr>
-                <th>Battery</th>
                 <th>Passport</th>
+                <th>Battery</th>
                 <th>Model</th>
                 <th>SOH</th>
                 <th>Status</th>
@@ -383,8 +396,8 @@ function Manufacturer({ batteries, companies, session, selected }) {
             <tbody>
               {companyBatteries.map((b) => (
                 <tr key={b.batteryId} className={b === shown ? 'row-selected' : undefined}>
-                  <td><a href={`#/manufacturer/${b.batteryId}`}>{b.batteryId}</a></td>
-                  <td>{b.batteryPassportId}</td>
+                  <td><a href={`#/manufacturer/${b.batteryPassportId}`}>{b.batteryPassportId}</a></td>
+                  <td>{b.batteryId}</td>
                   <td>{b.model.name}</td>
                   <td>{b.performance.soh}%</td>
                   <td><StatusBadge status={b.status} /></td>
@@ -396,8 +409,8 @@ function Manufacturer({ batteries, companies, session, selected }) {
       </section>
       {shown && (
         <>
-          <h2 className="section-title">{shown.batteryId}</h2>
-          {created === shown.batteryId && (
+          <h2 className="section-title">{shown.batteryPassportId}</h2>
+          {created === shown.batteryPassportId && (
             <Banner tone="success" title="Battery created">
               {created} is now in the database. Its QR code is below.
             </Banner>
@@ -499,16 +512,27 @@ function QrScanner({ onCode }) {
   )
 }
 
-function Scan({ role, batteries, scans, email }) {
+function Scan({ role, batteries, scans }) {
   const [code, setCode] = useState('')
   const [notFound, setNotFound] = useState(false)
-  const listed = scans.flatMap((id) => batteries.filter((b) => b.batteryId === id))
+  const [scanError, setScanError] = useState('')
+  // The camera keeps reading the same code while the scan is being saved.
+  const opening = useRef(false)
+  const listed = scans.flatMap((id) => batteries.filter((b) => b.batteryPassportId === id))
 
-  function openBattery(value) {
+  async function openBattery(value) {
     const battery = findBattery(batteries, value)
     if (!battery) return setNotFound(true)
-    addScan(email, battery.batteryId)
-    window.location.hash = `#/${role}/${battery.batteryId}`
+    if (opening.current) return undefined
+    opening.current = true
+    setScanError('')
+    try {
+      await addScan(battery.batteryPassportId)
+      window.location.hash = `#/${role}/${battery.batteryPassportId}`
+    } catch (failure) {
+      setScanError(failure.message)
+    }
+    opening.current = false
     return undefined
   }
 
@@ -527,7 +551,7 @@ function Scan({ role, batteries, scans, email }) {
       <h1>Scan battery QR code</h1>
       <QrScanner onCode={handleQrCode} />
       <form className="card form" onSubmit={submit}>
-        <label htmlFor="code">Battery or passport ID</label>
+        <label htmlFor="code">Passport ID</label>
         <div className="form-row">
           <input
             id="code"
@@ -541,14 +565,15 @@ function Scan({ role, batteries, scans, email }) {
           />
           <button>Open passport</button>
         </div>
-        {notFound && <p className="error" role="alert">No battery found with this ID.</p>}
+        {notFound && <p className="error" role="alert">No battery found with this passport ID. It looks like BP-2027-0001.</p>}
+        {scanError && <p className="error" role="alert">{scanError}</p>}
       </form>
       <h2 className="section-title">Your batteries ({listed.length})</h2>
       {listed.length === 0 && <p className="muted">No batteries scanned yet.</p>}
       <div className="label-grid">
         {listed.map((b) => (
-          <a className="card label" href={`#/${role}/${b.batteryId}`} key={b.batteryId}>
-            <strong>{b.batteryId}</strong>
+          <a className="card label" href={`#/${role}/${b.batteryPassportId}`} key={b.batteryId}>
+            <strong>{b.batteryPassportId}</strong>
             <span className="muted">{b.model.name}</span>
             <span><StatusBadge status={b.status} /></span>
           </a>
@@ -668,7 +693,7 @@ function BatteryTitle({ battery, backTo }) {
     <>
       <a href={backTo}>← Scan another battery</a>
       <div className="title-row">
-        <h1>{battery.batteryId}</h1>
+        <h1>{battery.batteryPassportId}</h1>
         <StatusBadge status={battery.status} />
       </div>
     </>
@@ -709,7 +734,7 @@ function Identification({ battery }) {
     <Facts
       title="Identification"
       facts={[
-        ['Passport ID', battery.batteryPassportId],
+        ['Battery ID', battery.batteryId],
         ['Model', `${battery.model.name} (${battery.model.modelId})`],
         ['Type', battery.model.type],
         ['Operator', `${battery.operator.name}, ${battery.operator.country}`],

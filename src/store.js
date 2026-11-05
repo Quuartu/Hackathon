@@ -1,10 +1,9 @@
 import { useSyncExternalStore } from 'react'
+import { authHeaders, currentToken, logOut, post, UNREACHABLE } from './auth.js'
 
 export function findBattery(batteries, code) {
   const wanted = code.trim().toLowerCase()
-  return batteries.find((b) =>
-    [b.batteryId, b.batteryPassportId].some((id) => id.toLowerCase() === wanted),
-  )
+  return batteries.find((b) => b.batteryPassportId.toLowerCase() === wanted)
 }
 
 // Next free IDs in the database's format: BAT-0002 and BP-2027-0002.
@@ -18,10 +17,10 @@ export function nextBatteryIds(batteries) {
 
 // ponytail: polling is enough for the demo, push updates only if 5 seconds of delay becomes a problem
 const POLL_MS = 5000
-const UNREACHABLE = 'Cannot reach the database. Check that the API is running (npm run server).'
 
-let state = { batteries: null, companies: [], error: '', saving: false }
+let state = { batteries: null, companies: [], scans: [], error: '', saving: false }
 let latestRefresh = 0
+let latestApplied = 0
 const listeners = new Set()
 
 function setState(change) {
@@ -29,36 +28,40 @@ function setState(change) {
   listeners.forEach((listener) => listener())
 }
 
-async function refresh() {
-  const ticket = ++latestRefresh
-  let change
-  try {
-    const responses = await Promise.all([fetch('/api/batteries'), fetch('/api/companies')])
-    if (!responses.every((response) => response.ok)) throw new Error()
-    const [batteries, companies] = await Promise.all(responses.map((response) => response.json()))
-    change = { batteries, companies, error: '' }
-  } catch {
-    change = { error: UNREACHABLE }
-  }
-  // An older poll must not overwrite the result of a newer one.
-  if (ticket === latestRefresh) setState(change)
+async function readMe() {
+  if (!currentToken()) return { scans: [] }
+  const response = await fetch('/api/me', { headers: authHeaders() })
+  if (response.status === 401) return { expired: true }
+  const result = await response.json()
+  if (!response.ok) throw new Error(result.error)
+  return { scans: result.batteries }
 }
 
-async function post(url, body) {
-  let response
-  let result
+export async function refresh() {
+  const ticket = ++latestRefresh
+  const token = currentToken()
+  let change
+  let expired = false
   try {
-    response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    })
-    result = await response.json()
-  } catch {
-    throw new Error(UNREACHABLE)
+    const [batteriesResponse, companiesResponse, me] = await Promise.all([
+      fetch('/api/batteries'),
+      fetch('/api/companies'),
+      readMe(),
+    ])
+    if (!batteriesResponse.ok || !companiesResponse.ok) throw new Error(UNREACHABLE)
+    const [batteries, companies] = await Promise.all([batteriesResponse.json(), companiesResponse.json()])
+    expired = me.expired
+    change = { batteries, companies, error: '', ...(me.scans && { scans: me.scans }) }
+  } catch (failure) {
+    change = { error: failure.message.includes('MongoDB') ? failure.message : UNREACHABLE }
   }
-  if (!response.ok) throw new Error(result.error)
-  return result
+  // An older poll must not overwrite a newer result. This compares with the newest result, not the newest
+  // request, because when MongoDB is down each answer takes longer than the gap between polls.
+  if (ticket < latestApplied) return
+  latestApplied = ticket
+  setState(change)
+  // The API restarted or the account is gone: back to the login screen.
+  if (expired && token === currentToken()) logOut()
 }
 
 async function act(path, body) {
@@ -100,46 +103,8 @@ function subscribe(listener) {
 
 export const useBatteries = () => useSyncExternalStore(subscribe, () => state)
 
-// ponytail: each account's scans stay in this browser with the account itself, so they do not follow it to another device
-const scansKey = (email) => `battery-passport-scans:${email}`
-const scanCache = new Map()
-const scanListeners = new Set()
-
-export function readScans(email) {
-  if (!scanCache.has(email)) {
-    let saved = []
-    try {
-      saved = JSON.parse(localStorage.getItem(scansKey(email))) ?? []
-    } catch {
-      // Storage blocked: the list lasts until the page reloads.
-    }
-    scanCache.set(email, saved)
-  }
-  return scanCache.get(email)
+// The refresh also cancels any older poll, which could still hold the list without this scan.
+export async function addScan(passportId) {
+  await post('/api/me/batteries', { passportId })
+  await refresh()
 }
-
-export function addScan(email, id) {
-  const next = [id, ...readScans(email).filter((scanned) => scanned !== id)]
-  scanCache.set(email, next)
-  try {
-    localStorage.setItem(scansKey(email), JSON.stringify(next))
-  } catch {
-    // Storage blocked: the list lasts until the page reloads.
-  }
-  scanListeners.forEach((listener) => listener())
-}
-
-function subscribeScans(listener) {
-  const onStorage = () => {
-    scanCache.clear()
-    listener()
-  }
-  scanListeners.add(listener)
-  window.addEventListener('storage', onStorage)
-  return () => {
-    scanListeners.delete(listener)
-    window.removeEventListener('storage', onStorage)
-  }
-}
-
-export const useScans = (email) => useSyncExternalStore(subscribeScans, () => readScans(email))

@@ -1,9 +1,10 @@
 # Battery Passport
 
-Proof of concept for the ESILV x Capgemini Engineering hackathon: a React web app covering the Battery Manufacturer, Garage, Customer and Sorting Centre roles, with a small API that reads and writes the team's shared Neo4j database.
+Proof of concept for the ESILV x Capgemini Engineering hackathon: a React web app covering the Battery Manufacturer, Garage, Customer and Sorting Centre roles, with a small API that reads and writes the team's shared Neo4j database, and keeps accounts in MongoDB.
 
 ```
-React (browser)  →  API in server/  →  Neo4j Aura
+React (browser)  →  API in server/  →  Neo4j Aura (batteries)
+                                    →  MongoDB Atlas (accounts and their lists)
 ```
 
 ## Start from zero in VS Code
@@ -36,7 +37,9 @@ npm install
 Copy-Item db\.env.example db\.env
 ```
 
-`db/.env` holds the connection values for the shared database. Git ignores it, so never commit it. If `db/.env.example` only contains placeholders, ask Abhi for the real values (see [db/README_TEAM.md](db/README_TEAM.md)).
+`db/.env` holds the connection values for the shared databases. Git ignores it, so never commit it. If `db/.env.example` only contains placeholders, ask Abhi for the Neo4j values (see [db/README_TEAM.md](db/README_TEAM.md)).
+
+In `db/.env`, replace `<db_password>` in `MONGODB_URI` with the MongoDB password, which the team shares privately. Your IP address must also be allowed in MongoDB Atlas, under **Network Access**. Without this, login fails with `Cannot reach the accounts database`.
 
 ### 3. Start the API and the app
 
@@ -67,7 +70,11 @@ Stop both terminals, then run `npm install`, `npm run server` and `npm run dev` 
 | Problem | Fix |
 |---|---|
 | Blank page when opening a battery | The API is out of date. Restart `npm run server`. |
-| "Data problem" banner | The API is off, or Aura is paused. Check the first terminal; if the API is running, ask Abhi to resume Aura. |
+| "Data problem" banner | The API is off, or Aura is paused. Check the first terminal; if the API is running, ask Abhi to resume Aura. If the message names MongoDB, see the next row. |
+| `Cannot reach the accounts database` | Your IP is not allowed in MongoDB Atlas (**Network Access**), the password in `MONGODB_URI` is wrong, or the network blocks port 27017. Try a phone hotspot to rule out the network. |
+| `Incorrect email or password` with a test account | The test accounts are not in this database yet. Run `npm run seed-accounts` once. |
+| `MONGODB_URI is missing` | Add it to `db/.env`, as in step 2. |
+| Logged out after restarting the API | Expected: login sessions are kept in the API's memory. Log in again. |
 | `EADDRINUSE` | An old API is still running. Close all terminals in VS Code and start again. If it continues, restart VS Code. |
 | `bad option: --env-file` | Node is too old. Update it. |
 | Windows: `running scripts is disabled` | In the terminal panel, use the **+** menu to open **Command Prompt**, then run the same `npm` commands there. |
@@ -87,18 +94,18 @@ Test accounts, all with the password `demo1234`:
 | `customer1@demo.example`, `customer2@demo.example`, `customer3@demo.example` | Customer |
 | `sorting1@demo.example`, `sorting2@demo.example`, `sorting3@demo.example` | Sorting Centre |
 
-These accounts are stored in `src/accounts.json`, with plain-text passwords for testing, and work on every computer that clones the repo. To add one, add an entry to the file with `email`, `role` (`manufacturer`, `garage`, `customer` or `sorting`) and `password`. A `manufacturer` also needs a `company`.
+These accounts are stored in MongoDB with hashed passwords, and work on every computer. One person loads them once with `npm run seed-accounts`. Repeating it is safe: existing accounts and their lists stay as they are.
 
 The three manufacturer test accounts belong to the company `VoltaDrive`.
 
-You can also create an account with an email, a password and a role. A Battery Manufacturer account also chooses its company from a list of the companies in the database. Accounts are saved only in your browser, not in the repo or in Neo4j. After login, each account goes straight to its role.
+You can also create an account with an email, a password and a role. A Battery Manufacturer account also chooses its company from a list of the companies in the database. Accounts and their lists of scanned batteries are saved in MongoDB, so they follow you to any computer. Nothing about accounts is stored in Neo4j. After login, each account goes straight to its role.
 
 Open the app in three tabs and log in with a different account in each. Each tab keeps its own login, and screens refresh every 5 seconds.
 
 **These steps change the database that the whole team shares.** Tell the group first. Afterwards, only Abhi can restore the battery, with queries I and I2 in [db/queries.cypher](db/queries.cypher).
 
 1. **Battery Manufacturer:** open **Create new battery**, create one, and keep its QR code on screen. The QR code contains the passport ID.
-2. **Garage:** scan that QR code or enter the battery's ID, enter a diagnosis, then click **Notify manufacturer**.
+2. **Garage:** scan that QR code or enter its passport ID, such as `BP-2027-0002`, enter a diagnosis, then click **Notify manufacturer**. A battery ID such as `BAT-0002` is refused.
 3. **Battery Manufacturer:** in **Notifications**, click **Change status to Waste**.
 4. **Customer:** scan the same battery and check that it shows **Out of service**. This role is read-only.
 5. **Sorting Centre:** scan it and check that the page shows **Passport up to date** with the status Waste.
@@ -107,7 +114,7 @@ Garage, Customer and Sorting Centre each only see the batteries they have scanne
 
 The **Battery Manufacturer** role covers the brief's Passport Owner: it handles garage requests and sees all the batteries of its company, with their details and QR codes. The form's economic operators and models come from the account's company, and it suggests the next free IDs, such as `BAT-0002` and `BP-2027-0002`. Tell the group before creating batteries; test batteries are deleted with query P in [db/queries.cypher](db/queries.cypher).
 
-For testing, **Demo mode** at the top right lets you choose a role and enter without logging in. It only appears with `npm run dev`, not in production builds.
+For testing, **Demo mode** at the top right lets you choose a role and enter with its first test account, such as `garage1@demo.example`, without typing a password. It needs MongoDB like a normal login, and only appears with `npm run dev`, not in production builds.
 
 ## Telemetry API (ngrok & Défi #1)
 
@@ -148,13 +155,12 @@ Telemetry waiting for review is kept in memory, so restarting `npm run server` d
 ## Limitations
 
 - The database has no extinguishing agent, so that field shows "Not recorded".
-- The API has no login check and only accepts connections from the same computer. Add both a login check and hosting setup before putting it online.
-- Each account's list of scanned batteries is saved in the browser at that address, so it does not follow the account to another browser, computer or port. Lists and company filters only limit what the screens show: the API still returns every battery.
+- The API only accepts connections from the same computer. Actions that change battery data need a login with the right role: only a Garage reports, only a Battery Manufacturer creates batteries and approves Waste, and Garage or Battery Manufacturer can apply telemetry. Reading batteries needs no login, and the check does not compare companies. Fix both before putting it online.
+- Lists and company filters only limit what the screens show: the API still returns every battery.
 - A battery joins a customer's list as soon as they scan it, so two customers can list the same battery.
-- An account created with sign-up can only log in from the browser where it was created. To use an account on every computer, add it to `src/accounts.json`.
+- If MongoDB is unreachable, nobody can log in, even with Neo4j running. Test from the network you will demo on, and keep a phone hotspot as a backup.
 - If the free Aura instance is paused, the app shows an error until Abhi resumes it (console.neo4j.io).
 - Garage, Customer and Sorting Centre scan QR codes with the camera or a photo. Browsers only allow the live camera on `localhost` or HTTPS, so over plain HTTP on a local network address use a photo or enter the ID.
-- Login is for the demo only, not real security. Checks run in the browser, created accounts stay in that browser, and anyone can sign up with any role. Passwords of created accounts are stored as salted hashes; those in `src/accounts.json` are in plain text.
-- Creating an account, and logging in with a created one, needs `localhost` or HTTPS, because browsers only allow the hashing API (`crypto.subtle`) there. The accounts in `src/accounts.json` also work over plain HTTP on a local network address.
+- Login is for the demo only, not real security: anyone can sign up with any role, and the test accounts' password is written here. Passwords are stored as salted hashes, and the API checks them.
 
 

@@ -1,5 +1,16 @@
+import { randomBytes } from 'node:crypto'
 import { createServer } from 'node:http'
 import neo4j from 'neo4j-driver'
+import {
+  hashPassword,
+  openAccounts,
+  parseLogin,
+  parseScan,
+  parseSignUp,
+  SCANNING_ROLES,
+  verifyPassword,
+  WRITE_ROLES,
+} from './accounts.js'
 import {
   APPLY_TELEMETRY,
   APPROVE,
@@ -8,11 +19,18 @@ import {
   LIST,
   parseNewBattery,
   parseTelemetry,
+  PASSPORT_EXISTS,
   REPORT,
   toBattery,
 } from './passport.js'
 
-const { NEO4J_URI, NEO4J_USERNAME, NEO4J_PASSWORD, NEO4J_DATABASE } = process.env
+const { NEO4J_URI, NEO4J_USERNAME, NEO4J_PASSWORD, NEO4J_DATABASE, MONGODB_URI } = process.env
+if (!MONGODB_URI) {
+  console.error('MONGODB_URI is missing from db/.env. See the README, step 2.')
+  process.exit(1)
+}
+const { client, accounts } = openAccounts(MONGODB_URI)
+const DUPLICATE_KEY = 11000
 const PORT = 3001
 const MAX_BODY = 100_000
 const MAX_REASON = 500
@@ -47,6 +65,98 @@ async function readJson(request) {
   }
   return JSON.parse(text || '{}') ?? {}
 }
+
+// A token in a header, not a cookie, so each tab can stay logged in as a different role during the demo.
+// ponytail: sessions live in memory, so restarting the API logs everyone out. Move them to MongoDB if the API is ever hosted.
+const sessions = new Map()
+const tokenOf = (request) => request.headers.authorization?.replace(/^Bearer /, '')
+const sessionOf = (request) => sessions.get(tokenOf(request))
+// A JSON content type stops other websites from posting here through the browser.
+const sentJson = (request) => (request.headers['content-type'] ?? '').includes('application/json')
+
+function startSession(response, status, { email, role, company }) {
+  const token = randomBytes(32).toString('hex')
+  sessions.set(token, { email, role, company })
+  send(response, status, { token, email, role, company })
+}
+
+async function signUp(response, body) {
+  const { records } = await query(COMPANIES, {}, neo4j.routing.READ)
+  const { values, error } = parseSignUp(body, records.map((record) => record.get('name')))
+  if (error) return send(response, 400, { error })
+  const { password, ...account } = values
+  try {
+    await accounts.insertOne({ ...account, passwordHash: await hashPassword(password), batteries: [] })
+  } catch (failure) {
+    if (failure.code !== DUPLICATE_KEY) throw failure
+    return send(response, 409, { error: 'An account with this email already exists.' })
+  }
+  return startSession(response, 201, account)
+}
+
+async function logIn(response, body) {
+  const { values, error } = parseLogin(body)
+  if (error) return send(response, 400, { error })
+  const account = await accounts.findOne({ email: values.email })
+  if (!account || !(await verifyPassword(values.password, account.passwordHash))) {
+    return send(response, 401, { error: 'Incorrect email or password.' })
+  }
+  return startSession(response, 200, account)
+}
+
+async function readMe(request, response) {
+  const session = sessionOf(request)
+  const account = session && (await accounts.findOne({ email: session.email }))
+  if (!account) return send(response, 401, { error: 'Please log in again.' })
+  return send(response, 200, { ...session, batteries: account.batteries.map((battery) => battery.passportId) })
+}
+
+async function addScan(request, response, body) {
+  const session = sessionOf(request)
+  if (!session) return send(response, 401, { error: 'Please log in again.' })
+  if (!SCANNING_ROLES.includes(session.role)) return send(response, 403, { error: 'Your account cannot do this.' })
+  const { values, error } = parseScan(body)
+  if (error) return send(response, 400, { error })
+  const { passportId } = values
+  // Batteries are identified by their passport, so a battery ID such as BAT-0001 is refused here too.
+  const { records } = await query(PASSPORT_EXISTS, { passportId }, neo4j.routing.READ)
+  if (!records.length) return send(response, 404, { error: 'No battery found with this passport ID.' })
+  const filter = { email: session.email }
+  // Newest first, with no duplicates. MongoDB keeps only the IDs: battery data stays in Neo4j.
+  await accounts.bulkWrite([
+    { updateOne: { filter, update: { $pull: { batteries: { passportId } } } } },
+    {
+      updateOne: {
+        filter,
+        update: { $push: { batteries: { $each: [{ passportId, at: new Date().toISOString() }], $position: 0 } } },
+      },
+    },
+  ])
+  return send(response, 200, { ok: true })
+}
+
+async function accountRoute(request, response, route) {
+  if (route === 'POST /api/auth/logout') {
+    sessions.delete(tokenOf(request))
+    return send(response, 200, { ok: true })
+  }
+  // After a failed first connection the driver stays closed for good, so reopen it here.
+  await client.connect()
+  if (route === 'GET /api/me') return readMe(request, response)
+  if (!sentJson(request)) return send(response, 415, { error: 'Send JSON.' })
+  const body = await readJson(request)
+  if (route === 'POST /api/auth/signup') return signUp(response, body)
+  if (route === 'POST /api/auth/login') return logIn(response, body)
+  return addScan(request, response, body)
+}
+
+const ACCOUNT_ROUTES = new Set([
+  'GET /api/me',
+  'POST /api/auth/signup',
+  'POST /api/auth/login',
+  'POST /api/auth/logout',
+  'POST /api/me/batteries',
+])
 
 async function write(response, cypher, params) {
   const { records } = await query(cypher, params, neo4j.routing.WRITE)
@@ -141,15 +251,22 @@ async function handle(request, response) {
     }
   }
 
-  // 5. Battery routes, including applying telemetry to Neo4j
+  // 5. Accounts, stored in MongoDB
+  const route = `${request.method} ${request.url}`
+  if (ACCOUNT_ROUTES.has(route)) return accountRoute(request, response, route)
+
+  // 6. Battery routes, including applying telemetry to Neo4j
   const [path, id, action] = request.url.match(/^\/api\/batteries(?:\/([^/]+)\/(report|approve-waste|apply-telemetry))?$/) ?? []
   if (request.method !== 'POST' || !path) return send(response, 404, { error: 'Not found.' })
 
-  // A JSON content type stops other websites from posting here through the browser.
-  const contentType = request.headers['content-type'] ?? ''
-  if (!contentType.includes('application/json')) {
-    return send(response, 415, { error: 'Send JSON.' })
+  // ponytail: this checks the role, not the company, so a manufacturer could approve another company's battery. Compare companies once there is a second one.
+  const session = sessionOf(request)
+  if (!session) return send(response, 401, { error: 'Please log in again.' })
+  if (!WRITE_ROLES[action ?? 'create'].includes(session.role)) {
+    return send(response, 403, { error: 'Your account cannot do this.' })
   }
+
+  if (!sentJson(request)) return send(response, 415, { error: 'Send JSON.' })
   const body = await readJson(request)
   if (!action) return create(response, body)
   if (action === 'apply-telemetry') return applyTelemetry(response, id)
@@ -166,13 +283,14 @@ async function handle(request, response) {
   return write(response, REPORT, { id, reason: reason.trim() })
 }
 
-// ponytail: localhost only and no login check, because logins still live in the browser. Add both before hosting this online.
+// ponytail: localhost only, and reading batteries needs no login. Change both before hosting this online.
 // ngrok still works, because it connects from this computer.
 createServer((request, response) => {
   handle(request, response).catch((failure) => {
     if (failure instanceof SyntaxError) return send(response, 400, { error: 'Invalid request.' })
     console.error(failure)
-    send(response, 502, { error: 'Cannot reach the database.' })
+    const database = failure.name.startsWith('Mongo') ? 'the accounts database (MongoDB)' : 'the database'
+    send(response, 502, { error: `Cannot reach ${database}.` })
   })
 }).listen(PORT, '127.0.0.1', () => {
   console.log(`API on http://127.0.0.1:${PORT}`)
