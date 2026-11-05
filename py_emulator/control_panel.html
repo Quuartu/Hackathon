@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BMS Control Panel</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --text: #1b2330; --muted: #5d6877; --line: #dde1e8;
+    --accent: #1f5fd6; --ok: #1d7f4e; --warn: #a35f00; --crit: #c0262d;
+    --ok-bg: #e3f4ea; --warn-bg: #fdf0d9; --crit-bg: #fbe3e4; --track: #e8ebf0;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #12161d; --card: #1a202a; --text: #e7ebf2; --muted: #9aa5b5; --line: #2b3342;
+      --accent: #6b9bff; --ok: #5fd08f; --warn: #f0b04a; --crit: #ff7a80;
+      --ok-bg: #173325; --warn-bg: #3a2c12; --crit-bg: #3b1a1d; --track: #262e3b;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 1040px; margin: 0 auto; padding: 20px 16px 40px; }
+  header { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin-bottom: 16px; }
+  h1 { font-size: 20px; margin: 0; }
+  .badge { font-size: 12px; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+  .controls { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); align-items: end; margin-bottom: 16px; }
+  label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  input[type=text], input[type=number] { width: 100%; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line);
+         background: var(--bg); color: var(--text); font: inherit; }
+  .seg { display: flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .seg button { flex: 1; border: 0; background: var(--bg); color: var(--text); padding: 8px 6px; font: inherit; cursor: pointer; }
+  .seg button + button { border-left: 1px solid var(--line); }
+  .seg button.on { background: var(--accent); color: #fff; }
+  .actions { display: flex; gap: 8px; }
+  .btn { flex: 1; padding: 9px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg);
+         color: var(--text); font: inherit; cursor: pointer; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .status { display: flex; flex-wrap: wrap; gap: 8px 22px; margin-bottom: 16px; font-size: 14px; }
+  .status b { font-weight: 600; }
+  .pill { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+  .pill.OK { background: var(--ok-bg); color: var(--ok); }
+  .pill.WARNING { background: var(--warn-bg); color: var(--warn); }
+  .pill.CRITICAL { background: var(--crit-bg); color: var(--crit); }
+  .pill.none { background: var(--track); color: var(--muted); }
+  .grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+  .mod h3 { margin: 0 0 6px; font-size: 14px; display: flex; justify-content: space-between; align-items: center; }
+  .val { font-size: 30px; font-weight: 650; letter-spacing: -.5px; }
+  .val small { font-size: 13px; font-weight: 400; color: var(--muted); }
+  .bar { position: relative; height: 12px; background: var(--track); border-radius: 6px; margin: 10px 0 14px; }
+  .fill { height: 100%; border-radius: 6px; width: 0; transition: width .4s; background: var(--ok); }
+  .fill.WARNING { background: var(--warn); } .fill.CRITICAL { background: var(--crit); }
+  .mark { position: absolute; top: -4px; bottom: -4px; width: 2px; background: var(--muted); opacity: .7; }
+  .hold { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+  input[type=range] { width: 100%; margin: 6px 0 0; }
+  .err { margin-bottom: 14px; padding: 10px 12px; border-radius: 8px; background: var(--crit-bg); color: var(--crit); display: none; }
+  .note { margin-top: 16px; font-size: 13px; color: var(--muted); }
+  table { border-collapse: collapse; margin-top: 8px; font-size: 13px; }
+  td, th { padding: 4px 14px 4px 0; text-align: left; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>BMS control panel</h1>
+    <span class="badge" id="mode">connecting...</span>
+  </header>
+
+  <div class="err" id="err"></div>
+
+  <section class="card controls">
+    <div>
+      <label for="battery">Battery id</label>
+      <input type="text" id="battery" value="BAT-0001" maxlength="40">
+    </div>
+    <div>
+      <label>Scenario</label>
+      <div class="seg" id="scen">
+        <button data-s="normal" class="on">Normal</button>
+        <button data-s="degrade">Degrade</button>
+        <button data-s="critical">Critical</button>
+      </div>
+    </div>
+    <div>
+      <label for="interval">Seconds between rounds</label>
+      <input type="number" id="interval" value="2" min="0.5" max="30" step="0.5">
+    </div>
+    <div class="actions">
+      <button class="btn primary" id="start">Start</button>
+      <button class="btn" id="stop">Stop</button>
+    </div>
+  </section>
+
+  <section class="status">
+    <span>State: <b id="running">stopped</b></span>
+    <span>Round: <b id="tick">0</b></span>
+    <span>Last update: <b id="last">-</b></span>
+    <span>Battery diagnosis: <span class="pill none" id="diag">none</span></span>
+  </section>
+
+  <section class="grid" id="grid"></section>
+
+  <p class="note">
+    The bar shows each module's internal resistance. The two marks are the warning and the critical limit.
+    "Hold" keeps a module at the value of its slider, for example to create a fault by hand.
+    The levels and alerts are decided by the database, not by this page.
+  </p>
+  <table>
+    <tr><th>Level</th><th>Internal resistance</th></tr>
+    <tr><td>OK</td><td id="t-ok"></td></tr>
+    <tr><td>WARNING</td><td id="t-warn"></td></tr>
+    <tr><td>CRITICAL</td><td id="t-crit"></td></tr>
+  </table>
+</main>
+
+<script>
+const MAX_SCALE = 12;
+let scenario = "normal";
+let limits = { warn: 4, max: 5 };
+const grid = document.getElementById("grid");
+const cards = [];
+
+for (let i = 1; i <= 5; i++) {
+  const el = document.createElement("div");
+  el.className = "card mod";
+  el.innerHTML = `
+    <h3>Module ${i} <span class="pill none" data-level>-</span></h3>
+    <div class="val"><span data-val>--</span> <small>mΩ</small></div>
+    <div class="bar"><div class="fill" data-fill></div><div class="mark" data-mw></div><div class="mark" data-mc></div></div>
+    <label class="hold"><input type="checkbox" data-hold> Hold at <b data-sv>5.0</b> mΩ</label>
+    <input type="range" min="1" max="12" step="0.1" value="5" data-slider aria-label="Held resistance for module ${i}">`;
+  grid.appendChild(el);
+  const c = { el, i,
+    val: el.querySelector("[data-val]"), fill: el.querySelector("[data-fill]"),
+    level: el.querySelector("[data-level]"), hold: el.querySelector("[data-hold]"),
+    slider: el.querySelector("[data-slider]"), sv: el.querySelector("[data-sv]"),
+    mw: el.querySelector("[data-mw]"), mc: el.querySelector("[data-mc]"), dragging: false };
+  cards.push(c);
+  const send = () => post("/api/override", { module: i, value: c.hold.checked ? parseFloat(c.slider.value) : null });
+  c.slider.addEventListener("input", () => { c.sv.textContent = parseFloat(c.slider.value).toFixed(1); c.dragging = true; if (c.hold.checked) send(); });
+  c.slider.addEventListener("change", () => { c.dragging = false; });
+  c.hold.addEventListener("change", send);
+}
+
+document.querySelectorAll("#scen button").forEach(b => b.addEventListener("click", () => {
+  scenario = b.dataset.s;
+  document.querySelectorAll("#scen button").forEach(x => x.classList.toggle("on", x === b));
+}));
+
+document.getElementById("start").addEventListener("click", async () => {
+  await post("/api/start", { scenario,
+    battery: document.getElementById("battery").value.trim(),
+    interval: parseFloat(document.getElementById("interval").value) });
+  refresh();
+});
+document.getElementById("stop").addEventListener("click", async () => { await post("/api/stop", {}); refresh(); });
+
+async function post(url, body) {
+  try {
+    const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const j = await r.json();
+    if (!r.ok) showError(j.error || "Request failed");
+    return j;
+  } catch (e) { showError("Cannot reach the server"); }
+}
+function showError(msg) {
+  const e = document.getElementById("err");
+  e.textContent = msg; e.style.display = msg ? "block" : "none";
+}
+function pos(v) { return Math.min(v / MAX_SCALE, 1) * 100 + "%"; }
+
+async function refresh() {
+  let s;
+  try { s = await (await fetch("/api/state")).json(); }
+  catch (e) { showError("Cannot reach the server. Is bms_server.py running?"); return; }
+  limits = { warn: s.warnMohm, max: s.maxMohm };
+  if (s.running) {
+    scenario = s.scenario;
+    document.querySelectorAll("#scen button").forEach(x => x.classList.toggle("on", x.dataset.s === scenario));
+  }
+  document.getElementById("mode").textContent = s.dryRun ? "dry run (no database)" : "live: writing to Neo4j";
+  document.getElementById("running").textContent = s.running ? "running (" + s.scenario + ")" : "stopped";
+  document.getElementById("tick").textContent = s.tick;
+  document.getElementById("last").textContent = s.lastUpdate || "-";
+  const d = document.getElementById("diag");
+  d.textContent = s.diagnosis || "none";
+  d.className = "pill " + (s.diagnosis || "none");
+  showError(s.error || "");
+  document.getElementById("t-ok").textContent = "up to " + limits.warn.toFixed(1) + " mΩ";
+  document.getElementById("t-warn").textContent = "above " + limits.warn.toFixed(1) + " and up to " + limits.max.toFixed(1) + " mΩ";
+  document.getElementById("t-crit").textContent = "above " + limits.max.toFixed(1) + " mΩ";
+  cards.forEach(c => {
+    c.mw.style.left = pos(limits.warn); c.mc.style.left = pos(limits.max);
+    const m = (s.modules || []).find(x => x.module === c.i);
+    if (m) {
+      c.val.textContent = m.resistanceMohm.toFixed(2);
+      c.fill.style.width = pos(m.resistanceMohm);
+      c.fill.className = "fill " + m.level;
+      c.level.textContent = m.level; c.level.className = "pill " + m.level;
+    }
+    const held = s.overrides[String(c.i)];
+    if (held !== undefined && !c.dragging) {
+      c.hold.checked = true; c.slider.value = held; c.sv.textContent = parseFloat(held).toFixed(1);
+    } else if (held === undefined && !c.dragging) { c.hold.checked = false; }
+  });
+}
+refresh();
+setInterval(refresh, 800);
+</script>
+</body>
+</html>
