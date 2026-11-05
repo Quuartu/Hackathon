@@ -125,14 +125,16 @@ The backend listens for real-time telemetry payloads (such as from a simulator o
 In a new terminal:
 ```sh
 npm run ngrok
-# or: npx ngrok http 3001
+# or: npx ngrok http 3001 --scheme http,https
 ```
+
+This opens the same address on both `http://` and `https://`, for senders that cannot use HTTPS, such as a microcontroller board. Plain `http://` only works from programs such as `curl`, not from a browser, and the readings travel unencrypted.
 
 Through ngrok, only the telemetry routes are available. Everything else answers 403. ngrok needs a free account the first time.
 
 ### 2. Send telemetry to the endpoint
 
-Send a `POST` request to `http://localhost:3001/api/telemetry` (or your ngrok URL `https://<id>.ngrok-free.app/api/telemetry`):
+Send a `POST` request to `http://localhost:3001/api/telemetry` (or your ngrok URL, `http://<id>.ngrok-free.app/api/telemetry` or the same with `https://`):
 
 ```sh
 curl -X POST http://localhost:3001/api/telemetry \

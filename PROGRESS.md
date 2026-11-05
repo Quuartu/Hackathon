@@ -43,6 +43,7 @@ On 5 November 2026:
 14. **BMS emulator (by Abhi):** it simulates the modules' internal resistance, with a control panel, and lives on the `emulator` branch, not on `main`. It writes directly to Neo4j, so its readings skip the app's **Update values** review. It was not run for the checks below.
 15. **Telemetry by passport ID:** `POST /api/telemetry` now needs `batteryPassportId`, in the JSON or the URL. A request with only a `batteryId`, or with no ID, gets a 400, and an unknown passport gets a 404. Readings with no ID no longer go to `BAT-0001`, which also sent readings carrying a passport ID to the wrong battery.
 16. **Review against the brief:** the Garage screen now opens with a banner when a module is `CRITICAL`, asking to report the battery. Modules show the manufacturer's limit and the time of the latest reading. The history no longer says "Transfer to sorting centre organised", because no transfer exists. `db/schema.cypher` recreates the demo data on a new instance, and the README has the alert rules and a test scenario.
+17. **ngrok over HTTP:** `npm run ngrok` now opens both `http://` and `https://`, for senders that cannot use HTTPS. The API did not change. `--scheme` is deprecated by ngrok but still works in agent 3.39.13. It has not been run with a real ngrok account.
 
 ## What has been done
 
