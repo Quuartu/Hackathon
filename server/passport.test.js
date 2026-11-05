@@ -106,6 +106,7 @@ test('a Waste battery has no pending request but keeps its history', () => {
 
 test('parseTelemetry accepts valid ngrok JSON payload and sets threshold levels', () => {
   const payload = {
+    batteryPassportId: ' bp-2027-0003 ',
     I_A: 84.3,
     modules: [
       { id: 1, dV_V: 0.694, R_mOhm: 8.23 },
@@ -118,7 +119,7 @@ test('parseTelemetry accepts valid ngrok JSON payload and sets threshold levels'
   const { values, error } = parseTelemetry(payload)
   assert.equal(error, undefined)
   assert.equal(values.I_A, 84.3)
-  assert.equal(values.batteryId, 'BAT-0001')
+  assert.equal(values.batteryPassportId, 'BP-2027-0003')
   assert.equal(values.modules.length, 5)
   assert.equal(values.modules[0].level, 'CRITICAL') // 8.23 > 5.0
   assert.equal(values.modules[1].level, 'CRITICAL') // 6.08 > 5.0
@@ -134,9 +135,19 @@ test('parseTelemetry rejects invalid payloads', () => {
   assert.ok(parseTelemetry({ I_A: 50, modules: [{ id: 1 }] }).error)
 })
 
+test('parseTelemetry needs a passport ID, so a reading never lands on a battery nobody named', () => {
+  const reading = { I_A: 50, modules: [{ id: 1, dV_V: 0.1, R_mOhm: 3 }] }
+  assert.match(parseTelemetry(reading).error, /batteryPassportId is required/)
+  assert.match(parseTelemetry({ ...reading, batteryId: 'BAT-0002' }).error, /batteryPassportId is required/)
+  assert.match(parseTelemetry({ ...reading, batteryPassportId: '  ' }).error, /batteryPassportId is required/)
+  assert.match(parseTelemetry({ ...reading, batteryPassportId: { $ne: null } }).error, /batteryPassportId is required/)
+  assert.match(parseTelemetry({ ...reading, batteryPassportId: 'BP/1' }).error, /Invalid batteryPassportId/)
+})
+
 test('parseTelemetry never reads a missing or impossible value as a healthy module', () => {
   const module = { id: 1, dV_V: 0.1, R_mOhm: 3 }
-  const refused = (change, top = {}) => parseTelemetry({ I_A: 50, modules: [{ ...module, ...change }], ...top }).error
+  const refused = (change, top = {}) =>
+    parseTelemetry({ batteryPassportId: 'BP-2027-0001', I_A: 50, modules: [{ ...module, ...change }], ...top }).error
   assert.equal(refused({}), undefined)
   assert.ok(refused({ R_mOhm: null }))
   assert.ok(refused({ R_mOhm: '' }))
@@ -144,6 +155,5 @@ test('parseTelemetry never reads a missing or impossible value as a healthy modu
   assert.ok(refused({ R_mOhm: -3 }))
   assert.ok(refused({ id: 1.5 }))
   assert.ok(refused({}, { I_A: null }))
-  assert.ok(refused({}, { batteryId: 'BAT/1' }))
   assert.ok(parseTelemetry({ I_A: 50, modules: [null] }).error)
 })

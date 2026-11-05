@@ -54,9 +54,9 @@ CREATE (m:Module {moduleId: $batteryId + '-M' + toString(i), index: i, name: 'Mo
 CREATE (b)-[:HAS_MODULE]->(m)
 RETURN b.batteryId AS batteryId, b.batteryPassportId AS passportId, count(m) AS modules`
 
-export const PASSPORT_EXISTS = `
+export const FIND_BY_PASSPORT = `
 MATCH (b:BatteryInstance {batteryPassportId: $passportId})
-RETURN b.batteryPassportId AS passportId`
+RETURN b.batteryId AS batteryId`
 
 const ID_FORMAT = /^[A-Z0-9-]{1,40}$/
 const MONTH_FORMAT = /^\d{4}-(0[1-9]|1[0-2])$/
@@ -167,14 +167,16 @@ export function parseTelemetry(body) {
     modules.push({ id, name: `Module ${id}`, dV_V, R_mOhm, level })
   }
 
-  const batteryId = typeof body.batteryId === 'string' && body.batteryId.trim()
-    ? body.batteryId.trim().toUpperCase()
-    : 'BAT-0001'
-  if (!ID_FORMAT.test(batteryId)) return { error: 'Invalid battery ID.' }
+  // Required, with no default: a reading must never land on a battery nobody named.
+  if (typeof body.batteryPassportId !== 'string' || !body.batteryPassportId.trim()) {
+    return { error: 'batteryPassportId is required, such as BP-2027-0001.' }
+  }
+  const batteryPassportId = body.batteryPassportId.trim().toUpperCase()
+  if (!ID_FORMAT.test(batteryPassportId)) return { error: 'Invalid batteryPassportId.' }
 
   return {
     values: {
-      batteryId,
+      batteryPassportId,
       I_A: current,
       receivedAt: new Date().toISOString(),
       modules,

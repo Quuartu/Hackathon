@@ -16,10 +16,10 @@ import {
   APPROVE,
   COMPANIES,
   CREATE_BATTERY,
+  FIND_BY_PASSPORT,
   LIST,
   parseNewBattery,
   parseTelemetry,
-  PASSPORT_EXISTS,
   REPORT,
   toBattery,
 } from './passport.js'
@@ -119,7 +119,7 @@ async function addScan(request, response, body) {
   if (error) return send(response, 400, { error })
   const { passportId } = values
   // Batteries are identified by their passport, so a battery ID such as BAT-0001 is refused here too.
-  const { records } = await query(PASSPORT_EXISTS, { passportId }, neo4j.routing.READ)
+  const { records } = await query(FIND_BY_PASSPORT, { passportId }, neo4j.routing.READ)
   if (!records.length) return send(response, 404, { error: 'No battery found with this passport ID.' })
   const filter = { email: session.email }
   // Newest first, with no duplicates. MongoDB keeps only the IDs: battery data stays in Neo4j.
@@ -238,16 +238,20 @@ async function handle(request, response) {
   if (request.method === 'POST' && isTelemetry) {
     const body = await readJson(request)
     if (body.modules && (body.I_A !== undefined || isTelemetryUrl)) {
-      const urlBatteryId = isTelemetryUrl?.[1]
-      if (urlBatteryId && !body.batteryId) body.batteryId = urlBatteryId
+      const urlPassportId = isTelemetryUrl?.[1]
+      if (urlPassportId && !body.batteryPassportId) body.batteryPassportId = urlPassportId
       const { values, error } = parseTelemetry(body)
       if (error) return send(response, 400, { error })
-      if (!pendingTelemetry.has(values.batteryId) && pendingTelemetry.size >= MAX_PENDING) {
+      const { records } = await query(FIND_BY_PASSPORT, { passportId: values.batteryPassportId }, neo4j.routing.READ)
+      if (!records.length) return send(response, 404, { error: 'No battery found with this passport ID.' })
+      const batteryId = records[0].get('batteryId')
+      if (!pendingTelemetry.has(batteryId) && pendingTelemetry.size >= MAX_PENDING) {
         return send(response, 429, { error: 'Too many batteries are waiting for review.' })
       }
-      pendingTelemetry.set(values.batteryId, values)
-      console.log(`[Telemetry received via API] Battery: ${values.batteryId}, I = ${values.I_A}A, Modules: ${values.modules.length}`)
-      return send(response, 200, { ok: true, message: 'Telemetry received and staged for update', staged: values })
+      const staged = { ...values, batteryId }
+      pendingTelemetry.set(batteryId, staged)
+      console.log(`[Telemetry received via API] Passport: ${values.batteryPassportId}, I = ${values.I_A}A, Modules: ${values.modules.length}`)
+      return send(response, 200, { ok: true, message: 'Telemetry received and staged for update', staged })
     }
   }
 

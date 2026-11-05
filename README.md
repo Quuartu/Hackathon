@@ -137,10 +137,29 @@ Send a `POST` request to `http://localhost:3001/api/telemetry` (or your ngrok UR
 ```sh
 curl -X POST http://localhost:3001/api/telemetry \
   -H "Content-Type: application/json" \
-  -d '{"I_A":84.3,"modules":[{"id":1,"dV_V":0.694,"R_mOhm":8.23},{"id":2,"dV_V":0.513,"R_mOhm":6.08},{"id":3,"dV_V":0.388,"R_mOhm":4.60},{"id":4,"dV_V":0.318,"R_mOhm":3.78},{"id":5,"dV_V":0.524,"R_mOhm":6.22}]}'
+  -d '{"batteryPassportId":"BP-2027-0002","I_A":84.3,"modules":[{"id":1,"dV_V":0.694,"R_mOhm":8.23},{"id":2,"dV_V":0.513,"R_mOhm":6.08},{"id":3,"dV_V":0.388,"R_mOhm":4.60},{"id":4,"dV_V":0.318,"R_mOhm":3.78},{"id":5,"dV_V":0.524,"R_mOhm":6.22}]}'
 ```
 
-Without a `batteryId` in the JSON or the URL (`/api/telemetry/BAT-0002`), the data goes to `BAT-0001`.
+From PowerShell:
+
+```powershell
+$body = @{
+    batteryPassportId = "BP-2027-0002"
+    I_A = 84.3
+    modules = @(
+        @{ id = 1; dV_V = 0.694; R_mOhm = 8.23 }
+        @{ id = 2; dV_V = 0.513; R_mOhm = 6.08 }
+        @{ id = 3; dV_V = 0.388; R_mOhm = 4.60 }
+        @{ id = 4; dV_V = 0.318; R_mOhm = 3.78 }
+        @{ id = 5; dV_V = 0.524; R_mOhm = 6.22 }
+    )
+}
+Invoke-RestMethod -Method Post -Uri "http://localhost:3001/api/telemetry" -ContentType "application/json" -Body ($body | ConvertTo-Json -Depth 5)
+```
+
+The passport ID is required, in the JSON or the URL (`/api/telemetry/BP-2027-0002`). A request with only a `batteryId` gets a 400, and an unknown passport ID gets a 404.
+
+Each person's API keeps its own waiting telemetry, so to reach someone else's screen, send to the ngrok URL of their API.
 
 With `npm run dev`, you can also click **⚡ Simulate telemetry** above the Modules table.
 

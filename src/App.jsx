@@ -803,7 +803,7 @@ function Modules({ battery }) {
             { id: 5, dV_V: 0.524, R_mOhm: 6.22 },
           ],
         },
-        battery.batteryId,
+        battery.batteryPassportId,
       )
     } catch (failure) {
       setSimulateError(failure.message)

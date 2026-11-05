@@ -86,8 +86,8 @@ export const reportOutOfService = (id, reason) => act(`/${id}/report`, { reason 
 export const approveWaste = (id, requestId) => act(`/${id}/approve-waste`, { requestId })
 export const applyTelemetry = (id) => act(`/${id}/apply-telemetry`, {})
 
-export async function sendTelemetry(payload, id = 'BAT-0001') {
-  await post('/api/telemetry', { ...payload, batteryId: id })
+export async function sendTelemetry(payload, batteryPassportId) {
+  await post('/api/telemetry', { ...payload, batteryPassportId })
   await refresh()
 }
 
