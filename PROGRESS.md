@@ -219,8 +219,8 @@ Not tested on a real tablet or phone.
 
 ## Next steps
 
-1. Before submitting or sharing the project, change the Neo4j password and remove the real values from `db/.env.example`. The team accepts it being in this public repository for now.
-2. Merge the `mongodb-accounts` branch into `main`. Each teammate then runs `npm install` and adds `MONGODB_URI` to `db/.env`, or the API will not start. Try the login from the network you will demo on, with a phone hotspot as a backup.
+1. Before submitting or sharing the project, change the Neo4j password and remove the real values from `db/.env.example` and `py_emulator/.env.example`. The team accepts it being in this public repository for now.
+2. After pulling, each teammate runs `npm install` and adds `MONGODB_URI` to `db/.env`, or the API will not start. Try the login from the network you will demo on, with a phone hotspot as a backup.
 3. Confirm the whole flow on real data with the group, then have Abhi reset the battery (queries I and I2) and delete test batteries (query P).
 4. Finish Défi #1: test with a real sensor or simulator through ngrok, and decide whether the telemetry update belongs to Garage, Battery Manufacturer or both.
 5. Prepare the slides, mockups or diagrams, and the demo video.
