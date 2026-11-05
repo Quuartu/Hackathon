@@ -14,7 +14,7 @@ RETURN b { .*, statusChangedAt: toString(b.statusChangedAt) } AS b,
        co { .* } AS co, an { .* } AS an, ca { .* } AS ca, el { .* } AS el, dp { .* } AS dp, dd { .* } AS dd,
        COLLECT {
          MATCH (b)-[:HAS_MODULE]->(m:Module)
-         RETURN m { .index, .name, .initialResistanceMohm, .lastResistanceMohm, .lastIncreasePct, .lastLevel }
+         RETURN m { .index, .name, .initialResistanceMohm, .lastResistanceMohm, .lastIncreasePct, .lastLevel, lastReadingAt: toString(m.lastReadingAt) }
        } AS modules,
        COLLECT {
          MATCH (b)-[:HAS_MODULE]->(m:Module)-[:HAS_ALERT]->(a:Alert)
@@ -195,10 +195,7 @@ export function toBattery({ b, type, mo, op, sp, sd, cf, co, an, ca, el, dp, dd,
     ...requests.map((r) => ({ at: r.createdAt, actor: 'Garage', text: `Reported out of service: ${r.reason}` })),
   ]
   if (b.statusChangedAt) {
-    history.push(
-      { at: b.statusChangedAt, actor: 'Manufacturer', text: `Status changed: Original → ${b.status}` },
-      { at: b.statusChangedAt, actor: 'Manufacturer', text: 'Transfer to sorting centre organised' },
-    )
+    history.push({ at: b.statusChangedAt, actor: 'Manufacturer', text: `Status changed: Original → ${b.status}` })
   }
 
   return {
@@ -212,6 +209,7 @@ export function toBattery({ b, type, mo, op, sp, sd, cf, co, an, ca, el, dp, dd,
       type,
       voltage: { minimal: sp.minimalVoltage, nominal: sp.nominalVoltage, maximal: sp.maximalVoltage },
       expectedLifetimeCycles: sd.expectedBatteryLifetimeCycles,
+      maxResistanceMohm: sp.maxInternalResistanceMohm,
       composition: {
         chemistry: co.batteryChemistry,
         anode: an.anodeMaterialsList.join(', '),
@@ -236,6 +234,7 @@ export function toBattery({ b, type, mo, op, sp, sd, cf, co, an, ca, el, dp, dd,
       nowMohm: m.lastResistanceMohm,
       increasePct: m.lastIncreasePct,
       level: m.lastLevel,
+      lastReadingAt: m.lastReadingAt,
     })),
     alerts: [...alerts].sort((x, y) => time(y.createdAt) - time(x.createdAt)),
     request: b.status === 'Original' && pending

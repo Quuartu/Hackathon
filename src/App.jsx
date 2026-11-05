@@ -595,6 +595,7 @@ function NotFound({ role }) {
 function Garage({ battery }) {
   const { saving } = useBatteries()
   const [reason, setReason] = useState('')
+  const critical = battery.modules.filter((m) => m.level === 'CRITICAL').map((m) => m.name)
 
   function submit(event) {
     event.preventDefault()
@@ -604,6 +605,12 @@ function Garage({ battery }) {
   return (
     <>
       <BatteryTitle battery={battery} backTo="#/garage" />
+      {battery.status === 'Original' && !battery.request && critical.length > 0 && (
+        <Banner tone="danger" title="Critical internal resistance">
+          {critical.join(', ')}: above the manufacturer's limit of {battery.model.maxResistanceMohm} mΩ.
+          This battery cannot be repaired, so report it as out of service.
+        </Banner>
+      )}
       {battery.status === 'Waste' && (
         <Banner tone="danger" title="Out of service">
           This passport is set to Waste. Hand the battery over for transfer to the sorting centre.
@@ -787,6 +794,7 @@ function Modules({ battery }) {
   const pending = battery.pendingTelemetry
   const [simulating, setSimulating] = useState(false)
   const [simulateError, setSimulateError] = useState('')
+  const lastReading = battery.modules.map((m) => m.lastReadingAt).filter(Boolean).sort().at(-1)
 
   async function handleSimulate() {
     setSimulating(true)
@@ -829,6 +837,10 @@ function Modules({ battery }) {
           </button>
         )}
       </div>
+      <p className="muted">
+        Manufacturer's limit: {battery.model.maxResistanceMohm} mΩ
+        {lastReading && ` · Last reading: ${formatDateTime(lastReading)}`}
+      </p>
       {simulateError && <p className="error" role="alert">{simulateError}</p>}
 
       {pending && (

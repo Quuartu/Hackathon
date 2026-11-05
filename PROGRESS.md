@@ -42,6 +42,7 @@ On 5 November 2026:
 13. **Batteries identified by passport ID:** scanning or typing only accepts a passport ID such as `BP-2027-0002`, and the API refuses anything else. Screens, addresses and the lists in MongoDB use it too. `BAT-0002` remains the battery's key in Neo4j, for the battery routes and telemetry, and appears as a detail on screen.
 14. **BMS emulator (by Abhi):** it simulates the modules' internal resistance, with a control panel, and lives on the `emulator` branch, not on `main`. It writes directly to Neo4j, so its readings skip the app's **Update values** review. It was not run for the checks below.
 15. **Telemetry by passport ID:** `POST /api/telemetry` now needs `batteryPassportId`, in the JSON or the URL. A request with only a `batteryId`, or with no ID, gets a 400, and an unknown passport gets a 404. Readings with no ID no longer go to `BAT-0001`, which also sent readings carrying a passport ID to the wrong battery.
+16. **Review against the brief:** the Garage screen now opens with a banner when a module is `CRITICAL`, asking to report the battery. Modules show the manufacturer's limit and the time of the latest reading. The history no longer says "Transfer to sorting centre organised", because no transfer exists. `db/schema.cypher` recreates the demo data on a new instance, and the README has the alert rules and a test scenario.
 
 ## What has been done
 
@@ -119,7 +120,7 @@ Reading batteries and companies, and sending telemetry, need no login. Through n
 | `server/seed-accounts.js` | Loads the test accounts into MongoDB and creates the email index |
 | `server/passport.js` | Cypher queries, status rules, checks on new batteries and conversion to the screens' data shape |
 | `server/passport.test.js` | Tests for the new battery checks and that conversion |
-| `db/` | Team database guide and queries |
+| `db/` | Team database guide, queries and `schema.cypher`, the demo data for a new instance |
 
 ## Decisions
 
@@ -158,9 +159,15 @@ MongoDB accounts, run on 5 November 2026 on a temporary local MongoDB unless sta
 
 - Telemetry by passport ID, on the real API: the old `batteryId` format, no ID, an unknown passport and a battery ID in the passport field are refused and nothing waits for review; `BP-2027-0003` lands on `BAT-0003`; the URL form works in lowercase and with ngrok's header, and the other routes stay closed to that header. The manufacturer's screen shows the readings with **Update values**, and **Simulate telemetry** works. The **Update values** query found the battery in a transaction that was rolled back, and all batteries were identical afterwards.
 
+Review against the brief, run on 5 November 2026 on the real API and Neo4j. Critical modules were simulated in the browser only, and write requests were blocked:
+
+- `npm test` (20 of 20) and `npm run build` pass.
+- Garage: the banner appears with a critical module, and not once the request is sent, with healthy modules or on a Waste battery. Battery Manufacturer shows the limit and the latest reading from Neo4j. Customer and Sorting Centre still open. No horizontal scrolling at the widths checked (Garage 820 and 390 px, Manufacturer 1280, Sorting and Customer 390), and no page errors.
+- `db/schema.cypher`: the Neo4j server accepted the four constraints without running them. With test IDs, in a transaction that was rolled back, the data statement created 21 nodes that the app's list query reads correctly. The database had 144 nodes before and after, and the model's values match the shared database. It has not been run on an empty instance.
+
 **Not confirmed:**
 
-- A report, approval, battery creation or **Update values** that really changes data with the new checks, or clicked through the screens. To do with the group, because it changes the shared database.
+- A report, approval or battery creation that really changes data with the new checks, or clicked through the screens. To do with the group, because it changes the shared database. Neo4j shows that readings of 2 mΩ reached `BAT-0001` on 5 November at 10:57 UTC, so someone seems to have used **Update values**, but this was not observed.
 - Atlas from the network used for the demo, and from any computer other than this one.
 - Scanning with a real camera.
 - ngrok itself, and the PowerShell command in the README, which was not run on Windows; the same JSON was sent another way.
@@ -215,7 +222,9 @@ Not tested on a real tablet or phone.
 - Queries I and I2 only reset `BAT-0001`; other test batteries are deleted with query P.
 - Garage and Battery Manufacturer show the diagnosis, module levels and alerts from Neo4j. The module reading history (query F) is not charted yet.
 - Reading batteries needs no login, and role checks do not compare companies, so a manufacturer could approve another company's battery. The API only accepts connections from the same computer, so it cannot be hosted online as it is.
-- The transfer to the sorting centre is only a line in the history: there is no order, carrier or document (that is Défi #2).
+- There is no transfer to the sorting centre in the app, and no recycling decision: no order, carrier or document (Défis #2 and #3, which we did not choose). The slides must say so, because the brief's objective mentions them in the full workflow.
+- Screens were only tried in a desktop browser at tablet and phone widths, not on real devices.
+- The demo needs the team's Neo4j and MongoDB and their passwords, so a jury cannot replay it alone unless it follows **Recreate the data** in the README.
 - The Garage report is free text. New batteries show "No reading" until telemetry or the team's simulator updates them.
 - Telemetry thresholds are fixed in the code (`OK` up to 4.0 mΩ, `WARNING` up to 5.0, then `CRITICAL`), so they do not follow `StaticPerformance.maxInternalResistanceMohm` for other models. Anyone with the ngrok URL can send readings, though they only wait for review. A simulator on another computer must go through ngrok, because the API no longer accepts network connections.
 - The Battery Manufacturer cannot reject a request, because the brief does not include it.
@@ -225,7 +234,7 @@ Not tested on a real tablet or phone.
 1. Before submitting or sharing the project, change the Neo4j password and remove the real values from `db/.env.example` and from `py_emulator/.env.example` on the `emulator` branch. The team accepts it being in this public repository for now.
 2. After pulling, each teammate runs `npm install` and adds `MONGODB_URI` to `db/.env`, or the API will not start. Try the login from the network you will demo on, with a phone hotspot as a backup.
 3. Confirm the whole flow on real data with the group, then have Abhi reset the battery (queries I and I2) and delete test batteries (query P).
-4. Finish Défi #1: test with a real sensor or simulator through ngrok, and decide whether the telemetry update belongs to Garage, Battery Manufacturer or both.
+4. Finish Défi #1: the brief asks for an emulated BMS, which is not on `main` yet. Choose the telemetry path (see Open decisions), move the emulator to `main`, test it through ngrok, and decide whether the telemetry update belongs to Garage, Battery Manufacturer or both.
 5. Prepare the slides, mockups or diagrams, and the demo video.
 
 ## Open decisions

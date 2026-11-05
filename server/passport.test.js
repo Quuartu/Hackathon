@@ -23,7 +23,7 @@ const row = (battery, requests = []) => ({
   type: 'EV Traction Battery',
   mo: { name: 'VD-75 NMC', modelId: 'MDL-NMC-75' },
   op: { name: 'VoltaDrive', address: 'Paris', country: 'France', email: 'contact@voltadrive.example' },
-  sp: { minimalVoltage: 300, nominalVoltage: 400, maximalVoltage: 420 },
+  sp: { minimalVoltage: 300, nominalVoltage: 400, maximalVoltage: 420, maxInternalResistanceMohm: 5 },
   sd: { expectedBatteryLifetimeCycles: 1500 },
   cf: { carbonFootprintDeclared: 85, performanceClass: 'B' },
   co: { batteryChemistry: 'Li-ion NMC' },
@@ -32,7 +32,7 @@ const row = (battery, requests = []) => ({
   el: { electrolyteList: ['LiPF6'] },
   dp: { soh: 78, soc: 62 },
   dd: { warranty: '2033-06', accidents: 0, numberOfFullCycles: 612 },
-  modules: [{ name: 'Module 3', initialResistanceMohm: 2.6, lastResistanceMohm: 9.95, lastIncreasePct: 282.7, lastLevel: 'CRITICAL' }],
+  modules: [{ name: 'Module 3', initialResistanceMohm: 2.6, lastResistanceMohm: 9.95, lastIncreasePct: 282.7, lastLevel: 'CRITICAL', lastReadingAt: '2027-01-01T10:00:00Z' }],
   alerts: [{ level: 'CRITICAL', message: 'High resistance', module: 'Module 3', createdAt: '2027-01-01T10:00:00Z' }],
 })
 
@@ -44,6 +44,8 @@ test('maps the graph to the shape the screens read', () => {
   assert.equal(battery.performance.soh, 78)
   assert.equal(battery.modules[0].nowMohm, 9.95)
   assert.equal(battery.modules[0].level, 'CRITICAL')
+  assert.equal(battery.modules[0].lastReadingAt, '2027-01-01T10:00:00Z')
+  assert.equal(battery.model.maxResistanceMohm, 5)
   assert.equal(battery.alerts[0].module, 'Module 3')
   assert.equal(battery.request, null)
   assert.equal(battery.history.length, 2)
@@ -100,8 +102,8 @@ test('a Waste battery has no pending request but keeps its history', () => {
     [wasteRequest('Approved')],
   ))
   assert.equal(battery.request, null)
-  assert.equal(battery.history.length, 5)
-  assert.equal(battery.history.at(-2).text, 'Status changed: Original → Waste')
+  assert.equal(battery.history.length, 4)
+  assert.equal(battery.history.at(-1).text, 'Status changed: Original → Waste')
 })
 
 test('parseTelemetry accepts valid ngrok JSON payload and sets threshold levels', () => {

@@ -171,6 +171,23 @@ With `npm run dev`, you can also click **⚡ Simulate telemetry** above the Modu
 
 Telemetry waiting for review is kept in memory, so restarting `npm run server` discards it.
 
+### 4. Alert rules and test scenario
+
+| Module resistance | Level | Effect |
+|---|---|---|
+| Up to 4.0 mΩ | `OK` | No alert |
+| Above 4.0, up to 5.0 mΩ | `WARNING` | Alert on the module |
+| Above 5.0 mΩ (the manufacturer's limit) | `CRITICAL` | Alert on the module, and a banner at the top of the Garage screen asking to report the battery |
+
+To test it, send a reading with every module around 3 mΩ, click **Update values** and check that all are `OK`. Then send the JSON above, where modules 1, 2 and 5 are above the limit, and click **Update values** again. The Garage screen now shows the banner.
+
+## Recreate the data
+
+The team's databases are already loaded. To start on your own:
+
+1. In a new, empty Neo4j instance, run [db/schema.cypher](db/schema.cypher). It creates battery `BP-2027-0001`, healthy and in status Original. Never run it on the team's shared database.
+2. Set the Neo4j values and your own `MONGODB_URI` in `db/.env`, then run `npm run seed-accounts`.
+
 ## Limitations
 
 - The database has no extinguishing agent, so that field shows "Not recorded".
